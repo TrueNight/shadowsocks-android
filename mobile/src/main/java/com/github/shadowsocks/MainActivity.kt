@@ -204,7 +204,6 @@ class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPref
                 R.id.profiles -> displayFragment(ProfilesFragment())
                 R.id.globalSettings -> displayFragment(GlobalSettingsFragment())
                 R.id.about -> {
-                    Core.analytics.logEvent("about", Bundle())
                     displayFragment(AboutFragment())
                 }
                 R.id.faq -> {

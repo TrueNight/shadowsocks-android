@@ -139,12 +139,20 @@ class ProfileConfigFragment : PreferenceFragmentCompat(),
         }.show(fragmentManager ?: return, Key.pluginConfigure)
     }
 
-    private fun saveAndExit() {
-        val profile = ProfileManager.getProfile(profileId) ?: Profile()
-        profile.id = profileId
-        profile.deserialize()
-        ProfileManager.updateProfile(profile)
-        ProfilesFragment.instance?.profilesAdapter?.deepRefreshId(profileId)
+    fun saveAndExit() {
+        val profile = ProfileManager.getProfile(profileId)
+        if (profile != null) {
+            ProfileManager.updateProfile(profile.apply {
+                id = profileId
+                deserialize()
+            })
+            ProfilesFragment.instance?.profilesAdapter?.deepRefreshId(profileId)
+        } else {
+            ProfileManager.createProfile(Profile().apply {
+                deserialize()
+            })
+        }
+
         if (profileId in Core.activeProfileIds && DataStore.directBootAware) DirectBoot.update()
         requireActivity().finish()
     }
