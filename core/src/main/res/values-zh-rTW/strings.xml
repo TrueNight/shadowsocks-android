@@ -25,8 +25,8 @@
     <string name="app_name">"影梭"</string>
     <string name="quick_toggle">"切換"</string>
     <string name="remote_dns">"遠程 DNS"</string>
-    <string name="stat_summary">"傳送: \t%3$s\t↑\t%1$s/s
-接收: \t%4$s\t↓\t%2$s/s"</string>
+    <string name="stat_summary">"傳送: \t%1$s/s
+接收: \t%2$s/s"</string>
     <string name="connection_test_testing">"測試中……"</string>
     <string name="connection_test_available">"成功: HTTPS 握手延遲 %d 毫秒"</string>
     <string name="connection_test_error">"偵測出網際網路連線失敗: %s"</string>

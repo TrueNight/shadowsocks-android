@@ -1,6 +1,6 @@
 ## Privacy Policy
 
-The shadowsocks-android  is built as an Open Source software. This app is provided by Shadowsocks Team at no cost and is intended for use as is.
+The shadowsocks-android  is built as an Open Source software. This app is provided at no cost and is intended for use as is.
 
 This page is used to inform visitors regarding our policies with the collection, use, and disclosure of Personal Information if anyone decided to use our app.
 
@@ -17,12 +17,6 @@ The app does use third party services that may collect information used to ident
 Link to privacy policy of third party service providers used by the app
 
 *   [Google Play Services](https://www.google.com/policies/privacy/)
-*   [AdMob](https://support.google.com/admob/answer/6128543?hl=en)
-*   [Firebase Analytics](https://firebase.google.com/policies/analytics)
-
-**Log Data**
-
-We want to inform you that whenever you use our app, in a case of an error in the app we collect data and information (through third party products) on your phone called Log Data. This Log Data may include information such as your device Internet Protocol (“IP”) address, device name, operating system version, the configuration of the app when utilizing our App, the time and date of your use of the app, and other statistics.
 
 **Cookies**
 

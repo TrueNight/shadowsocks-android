@@ -24,8 +24,7 @@
 <resources>
     <string name="quick_toggle">"Basculer"</string>
     <string name="remote_dns">"DNS Distant"</string>
-    <string name="stat_summary">"Envoyé : \t%3$s\t↑\t%1$s
-Reçu : \t\t\t%4$s\t↓\t%2$s"</string>
+    <string name="stat_summary">"Envoyé : \t%1$s\nReçu : \t\t\t%2$s"</string>
     <string name="connection_test_testing">"Essai…"</string>
     <string name="connection_test_available">"Succès : le handshake HTTPS a pris %dms"</string>
     <string name="connection_test_error">"Impossible de détecter la connexion Internet :%s"</string>

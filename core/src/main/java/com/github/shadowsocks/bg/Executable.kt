@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -25,7 +26,6 @@ import android.system.Os
 import android.system.OsConstants
 import android.text.TextUtils
 import android.util.Log
-import com.crashlytics.android.Crashlytics
 import java.io.File
 import java.io.IOException
 
@@ -47,9 +47,7 @@ object Executable {
                 Os.kill(process.name.toInt(), OsConstants.SIGKILL)
             } catch (e: ErrnoException) {
                 if (e.errno != OsConstants.ESRCH) {
-                    e.printStackTrace()
-                    Crashlytics.log(Log.WARN, "kill", "SIGKILL ${exe.absolutePath} (${process.name}) failed")
-                    Crashlytics.logException(e)
+                    Log.w("kill", "SIGKILL ${exe.absolutePath} (${process.name}) failed", e)
                 }
             }
         }

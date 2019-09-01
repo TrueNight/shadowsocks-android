@@ -24,8 +24,8 @@
 <resources>
     <string name="quick_toggle">"Подключение"</string>
     <string name="remote_dns">"Удалённый DNS"</string>
-    <string name="stat_summary">"Отправлено: \t%3$s\t↑\t%1$s
-Получено: \t\t\t%4$s\t↓\t%2$s"</string>
+    <string name="stat_summary">"Отправлено: \t%1$s
+Получено: \t\t\t%2$s"</string>
     <string name="connection_test_testing">"Проверка…"</string>
     <string name="connection_test_available">"Успешно: рукопожатие HTTPS заняло %dмс"</string>
     <string name="connection_test_error">"Сбой проверки интернет-соединения: %s"</string>

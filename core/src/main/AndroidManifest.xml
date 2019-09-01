@@ -16,7 +16,6 @@
     <application
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
-        android:backupAgent="com.github.shadowsocks.ConfigBackupHelper"
         android:extractNativeLibs="true"
         android:fullBackupContent="@xml/backup_descriptor"
         android:fullBackupOnly="true"
@@ -27,8 +26,6 @@
 
         <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing"
                    android:value="true" />
-        <meta-data android:name="com.google.android.backup.api_key"
-                   android:value="AEdPqrEAAAAI_zVxZthz2HDuz9toTvkYvL0L5GA-OjeUIfBeXg"/>
 
         <service
             android:name="com.github.shadowsocks.bg.VpnService"
@@ -85,12 +82,6 @@
             </intent-filter>
         </receiver>
 
-        <service android:name="com.google.firebase.components.ComponentDiscoveryService"
-                 android:directBootAware="true"/>
-        <provider android:name="com.crashlytics.android.CrashlyticsInitProvider"
-                  tools:node="remove"/>
-        <provider android:name="com.google.firebase.provider.FirebaseInitProvider"
-                  tools:node="remove"/>
         <!-- https://android.googlesource.com/platform/frameworks/support/+/androidx-master-dev/work/workmanager/src/main/AndroidManifest.xml -->
         <provider android:name="androidx.work.impl.WorkManagerInitializer"
                   tools:node="remove"/>

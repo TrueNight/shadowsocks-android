@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -139,20 +140,16 @@ class ProfileConfigFragment : PreferenceFragmentCompat(),
         }.show(fragmentManager ?: return, Key.pluginConfigure)
     }
 
-    fun saveAndExit() {
-        val profile = ProfileManager.getProfile(profileId)
-        if (profile != null) {
-            ProfileManager.updateProfile(profile.apply {
-                id = profileId
-                deserialize()
-            })
-            ProfilesFragment.instance?.profilesAdapter?.deepRefreshId(profileId)
+    private fun saveAndExit() {
+        val profile = ProfileManager.getProfile(profileId) ?: Profile()
+        profile.deserialize()
+        if (profileId == -1L) {
+            ProfileManager.createProfile(profile)
         } else {
-            ProfileManager.createProfile(Profile().apply {
-                deserialize()
-            })
+            profile.id = profileId
+            ProfileManager.updateProfile(profile)
+            ProfilesFragment.instance?.profilesAdapter?.deepRefreshId(profileId)
         }
-
         if (profileId in Core.activeProfileIds && DataStore.directBootAware) DirectBoot.update()
         requireActivity().finish()
     }

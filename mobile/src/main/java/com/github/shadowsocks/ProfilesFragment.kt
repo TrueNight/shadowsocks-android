@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -29,7 +30,10 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.format.Formatter
 import android.util.LongSparseArray
-import android.view.*
+import android.view.LayoutInflater
+import android.view.MenuItem
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -262,6 +266,11 @@ class ProfilesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener {
 
     private val clipboard by lazy { requireContext().getSystemService<ClipboardManager>()!! }
 
+    private fun startNewConfig() {
+        Profile().serialize()
+        startActivity(Intent(context, ProfileConfigActivity::class.java))
+    }
+
     private fun startConfig(profile: Profile) {
         profile.serialize()
         startActivity(Intent(context, ProfileConfigActivity::class.java).putExtra(Action.EXTRA_PROFILE_ID, profile.id))
@@ -280,8 +289,6 @@ class ProfilesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener {
         toolbar.setTitle(R.string.profiles)
         toolbar.inflateMenu(R.menu.profile_manager_menu)
         toolbar.setOnMenuItemClickListener(this)
-
-        isAdLoaded = false
 
         val profilesList = view.findViewById<RecyclerView>(R.id.list)
         profilesList.setOnApplyWindowInsetsListener(MainListListener)
@@ -361,7 +368,7 @@ class ProfilesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener {
                 true
             }
             R.id.action_manual_settings -> {
-                startConfig()
+                startNewConfig()
                 true
             }
             R.id.action_export_clipboard -> {

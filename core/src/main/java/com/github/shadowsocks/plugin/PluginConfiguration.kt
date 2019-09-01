@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -21,7 +22,6 @@
 package com.github.shadowsocks.plugin
 
 import android.util.Log
-import com.crashlytics.android.Crashlytics
 import com.github.shadowsocks.utils.Commandline
 import java.util.*
 
@@ -44,7 +44,7 @@ class PluginConfiguration(val pluginsOptions: Map<String, PluginOptions>, val se
                     }
                 }
             } catch (exc: Exception) {
-                Crashlytics.log(Log.WARN, "PluginConfiguration", exc.message)
+                Log.w("PluginConfiguration", exc.message)
             }
             opt
         } else PluginOptions(line)

@@ -24,8 +24,7 @@
 <resources>
     <string name="quick_toggle">"Alternar"</string>
     <string name="remote_dns">"DNS Remoto"</string>
-    <string name="stat_summary">"Enviado: \t\t\t\t\t%3$s\t↑\t%1$s
-Recibido: \t%4$s\t↓\t%2$s"</string>
+    <string name="stat_summary">"Enviado: \t\t\t\t\t%1$s\nRecibido: \t%2$s"</string>
     <string name="connection_test_testing">"Probando…"</string>
     <string name="connection_test_available">"Éxito: El establecimiento de la comunicación HTTPS tomó %dms"</string>
     <string name="connection_test_error">"Fallo al detectar conexión a Internet: %s"</string>
