@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -40,7 +41,6 @@ import androidx.core.view.GravityCompat
 import androidx.core.view.updateLayoutParams
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.preference.PreferenceDataStore
-import com.crashlytics.android.Crashlytics
 import com.github.shadowsocks.acl.CustomRulesFragment
 import com.github.shadowsocks.aidl.IShadowsocksService
 import com.github.shadowsocks.aidl.ShadowsocksConnection
@@ -147,7 +147,7 @@ class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPref
             resultCode == Activity.RESULT_OK -> Core.startService()
             else -> {
                 snackbar().setText(R.string.vpn_permission_denied).show()
-                Crashlytics.log(Log.ERROR, TAG, "Failed to start VpnService from onActivityResult: $data")
+                Log.w(TAG, "Failed to start VpnService from onActivityResult: $data")
             }
         }
     }
@@ -206,10 +206,9 @@ class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPref
                     connection.bandwidthTimeout = connection.bandwidthTimeout   // request stats update
                 }
                 R.id.globalSettings -> displayFragment(GlobalSettingsFragment())
-                R.id.about -> {
-                    Core.analytics.logEvent("about", Bundle())
-                    displayFragment(AboutFragment())
-                }
+//                R.id.about -> {
+//                    displayFragment(AboutFragment())
+//                }
                 R.id.faq -> {
                     launchUrl(getString(R.string.faq_url))
                     return true

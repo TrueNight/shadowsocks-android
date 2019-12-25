@@ -24,8 +24,7 @@
 <resources>
     <string name="quick_toggle">"Aç/Kapa"</string>
     <string name="remote_dns">"Uzaktan DNS"</string>
-    <string name="stat_summary">"Yüklendi: \t\t\t\t\t%3$s\t↑\t%1$s
-İndirildi: \t%4$s\t↓\t%2$s"</string>
+    <string name="stat_summary">"Yüklendi: \t\t\t\t\t%1$s\nİndirildi: \t%2$s"</string>
     <string name="connection_test_testing">"Test ediliyor…"</string>
     <string name="connection_test_error">"İnternet bağlantısı bulunamadı: %s"</string>
     <string name="connection_test_fail">"İnternet Bağlantısı Bulunamadı"</string>

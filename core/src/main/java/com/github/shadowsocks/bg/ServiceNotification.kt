@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *                                                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -54,12 +55,12 @@ class ServiceNotification(private val service: BaseService.Interface, profileNam
         object : IShadowsocksServiceCallback.Stub() {
             override fun stateChanged(state: Int, profileName: String?, msg: String?) { }   // ignore
             override fun trafficUpdated(profileId: Long, stats: TrafficStats) {
-                if (profileId != 0L) return
+                service as Context
+                val txr = service.getString(R.string.speed, Formatter.formatFileSize(service, stats.txRate))
+                val rxr = service.getString(R.string.speed, Formatter.formatFileSize(service, stats.rxRate))
                 builder.apply {
-                    setContentText((service as Context).getString(R.string.traffic,
-                            service.getString(R.string.speed, Formatter.formatFileSize(service, stats.txRate)),
-                            service.getString(R.string.speed, Formatter.formatFileSize(service, stats.rxRate))))
-                    setSubText(service.getString(R.string.traffic,
+                    setContentTitle("$txr↑\t$rxr↓")
+                    setContentText(service.getString(R.string.stat_summary,
                             Formatter.formatFileSize(service, stats.txTotal),
                             Formatter.formatFileSize(service, stats.rxTotal)))
                 }

@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -45,15 +46,17 @@ import java.net.URI
 import java.net.URISyntaxException
 import java.util.*
 
+const val DEFAULT_PORT = 8388
+
 @Entity
 @Parcelize
 data class Profile(
         @PrimaryKey(autoGenerate = true)
         var id: Long = 0,
         var name: String? = "",
-        var host: String = "198.199.101.152",
-        var remotePort: Int = 8388,
-        var password: String = "u1rRWTssNv0p",
+        var host: String = "",
+        var remotePort: Int = DEFAULT_PORT,
+        var password: String = "",
         var method: String = "aes-256-cfb",
         var route: String = "all",
         var remoteDns: String = "dns.google",
@@ -331,7 +334,7 @@ data class Profile(
         name = DataStore.privateStore.getString(Key.name) ?: ""
         // It's safe to trim the hostname, as we expect no leading or trailing whitespaces here
         host = (DataStore.privateStore.getString(Key.host) ?: "").trim()
-        remotePort = parsePort(DataStore.privateStore.getString(Key.remotePort), 8388, 1)
+        remotePort = parsePort(DataStore.privateStore.getString(Key.remotePort), DEFAULT_PORT, 1)
         password = DataStore.privateStore.getString(Key.password) ?: ""
         method = DataStore.privateStore.getString(Key.method) ?: ""
         route = DataStore.privateStore.getString(Key.route) ?: ""

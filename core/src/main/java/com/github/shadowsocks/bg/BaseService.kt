@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -27,8 +28,6 @@ import android.content.IntentFilter
 import android.os.*
 import android.util.Log
 import androidx.core.content.getSystemService
-import androidx.core.os.bundleOf
-import com.crashlytics.android.Crashlytics
 import com.github.shadowsocks.BootReceiver
 import com.github.shadowsocks.Core
 import com.github.shadowsocks.Core.app
@@ -39,7 +38,6 @@ import com.github.shadowsocks.core.R
 import com.github.shadowsocks.net.HostsFile
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.*
-import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.*
 import java.io.File
 import java.net.URL
@@ -226,7 +224,7 @@ object BaseService {
             when {
                 s == State.Stopped -> startRunner()
                 s.canStop -> stopRunner(true)
-                else -> Crashlytics.log(Log.WARN, tag, "Illegal state when invoking use: $s")
+                else -> Log.w(tag, "Illegal state when invoking use: $s")
             }
         }
 
@@ -265,7 +263,6 @@ object BaseService {
             // channge the state
             data.changeState(State.Stopping)
             GlobalScope.launch(Dispatchers.Main.immediate) {
-                Core.analytics.logEvent("stop", bundleOf(Pair(FirebaseAnalytics.Param.METHOD, tag)))
                 data.connectingJob?.cancelAndJoin() // ensure stop connecting first
                 this@Interface as Service
                 // we use a coroutineScope here to allow clean-up in parallel
@@ -336,7 +333,6 @@ object BaseService {
             }
 
             data.notification = createNotification(profile.formattedName)
-            Core.analytics.logEvent("start", bundleOf(Pair(FirebaseAnalytics.Param.METHOD, tag)))
 
             data.changeState(State.Connecting)
             data.connectingJob = GlobalScope.launch(Dispatchers.Main) {

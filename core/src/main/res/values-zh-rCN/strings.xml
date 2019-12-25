@@ -24,8 +24,8 @@
 <resources>
     <string name="quick_toggle">"开关"</string>
     <string name="remote_dns">"远程 DNS"</string>
-    <string name="stat_summary">"上传: \t%3$s\t↑\t%1$s
-下载: \t%4$s\t↓\t%2$s"</string>
+    <string name="stat_summary">"上传: \t%1$s
+下载: \t%2$s"</string>
     <string name="connection_test_testing">"测试中…"</string>
     <string name="connection_test_available">"连接成功：HTTPS 握手延时 %d 毫秒"</string>
     <string name="connection_test_error">"失败：%s"</string>

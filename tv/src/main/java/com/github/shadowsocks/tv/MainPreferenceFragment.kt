@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2018 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2018 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -36,7 +37,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.get
 import androidx.lifecycle.observe
 import androidx.preference.*
-import com.crashlytics.android.Crashlytics
 import com.github.shadowsocks.BootReceiver
 import com.github.shadowsocks.Core
 import com.github.shadowsocks.aidl.IShadowsocksService
@@ -96,8 +96,6 @@ class MainPreferenceFragment : LeanbackPreferenceFragmentCompat(), ShadowsocksCo
     override fun trafficUpdated(profileId: Long, stats: TrafficStats) {
         if (profileId == 0L) context?.let { context ->
             this.stats.summary = getString(R.string.stat_summary,
-                    getString(R.string.speed, Formatter.formatFileSize(context, stats.txRate)),
-                    getString(R.string.speed, Formatter.formatFileSize(context, stats.rxRate)),
                     Formatter.formatFileSize(context, stats.txTotal),
                     Formatter.formatFileSize(context, stats.rxTotal))
         }
@@ -208,7 +206,6 @@ class MainPreferenceFragment : LeanbackPreferenceFragmentCompat(), ShadowsocksCo
     }
 
     private fun populateProfiles() {
-        ProfileManager.ensureNotEmpty()
         val profiles = ProfileManager.getAllProfiles()!!
         fab.value = null
         fab.entries = profiles.map { it.formattedName }.toTypedArray()
@@ -290,7 +287,7 @@ class MainPreferenceFragment : LeanbackPreferenceFragmentCompat(), ShadowsocksCo
         when (requestCode) {
             REQUEST_CONNECT -> if (resultCode == Activity.RESULT_OK) Core.startService() else {
                 Toast.makeText(requireContext(), R.string.vpn_permission_denied, Toast.LENGTH_SHORT).show()
-                Crashlytics.log(Log.ERROR, TAG, "Failed to start VpnService from onActivityResult: $data")
+                Log.e(TAG, "Failed to start VpnService from onActivityResult: $data")
             }
             REQUEST_REPLACE_PROFILES -> {
                 if (resultCode != Activity.RESULT_OK) return

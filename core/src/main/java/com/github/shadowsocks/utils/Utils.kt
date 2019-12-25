@@ -1,5 +1,6 @@
 /*******************************************************************************
  *                                                                             *
+ *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2018 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2018 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -33,10 +34,10 @@ import android.net.Uri
 import android.os.Build
 import android.system.Os
 import android.system.OsConstants
+import android.util.Log
 import android.util.TypedValue
 import androidx.annotation.AttrRes
 import androidx.preference.Preference
-import com.crashlytics.android.Crashlytics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -122,8 +123,7 @@ fun Resources.Theme.resolveResourceId(@AttrRes resId: Int): Int {
 val Intent.datas get() = listOfNotNull(data) + (clipData?.asIterable()?.mapNotNull { it.uri } ?: emptyList())
 
 fun printLog(t: Throwable) {
-    Crashlytics.logException(t)
-    t.printStackTrace()
+    Log.w("Utils", t)
 }
 
 fun Preference.remove() = parent!!.removePreference(this)
