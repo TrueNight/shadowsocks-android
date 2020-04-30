@@ -22,8 +22,6 @@
 package com.github.shadowsocks.acl
 
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.DialogInterface
 import android.content.Intent
 import android.content.res.Configuration
@@ -40,7 +38,6 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.Toolbar
 import androidx.core.content.ContextCompat
-import androidx.core.content.getSystemService
 import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -60,6 +57,8 @@ import com.github.shadowsocks.widget.MainListListener
 import com.github.shadowsocks.widget.UndoSnackbarManager
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.android.parcel.Parcelize
+import me.zhanghai.android.fastscroll.FastScrollerBuilder
+import timber.log.Timber
 import java.net.IDN
 import java.net.MalformedURLException
 import java.net.URL
@@ -75,8 +74,9 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         private const val SELECTED_HOSTNAMES = "com.github.shadowsocks.acl.CustomRulesFragment.SELECTED_HOSTNAMES"
         private const val SELECTED_URLS = "com.github.shadowsocks.acl.CustomRulesFragment.SELECTED_URLS"
 
-        // unescaped: (?<=^(\(\^\|\\\.\)|\^\(\.\*\\\.\)\?)).*(?=\$$)
-        private val domainPattern = "(?<=^(\\(\\^\\|\\\\\\.\\)|\\^\\(\\.\\*\\\\\\.\\)\\?)).*(?=\\\$\$)".toRegex()
+        // unescaped lol: (?<=^(?:\(\^\|\\\.\)|\^\(\.\*\\\.\)\?|\(\?:\^\|\\\.\))).*(?=\$$)
+        private val domainPattern =
+                "(?<=^(?:\\(\\^\\|\\\\\\.\\)|\\^\\(\\.\\*\\\\\\.\\)\\?|\\(\\?:\\^\\|\\\\\\.\\))).*(?=\\\$\$)".toRegex()
 
         @Suppress("FunctionName")
         private fun AclItem(item: Any) = when (item) {
@@ -182,7 +182,7 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
                     when (Template.values()[templateSelector.selectedItemPosition]) {
                         Template.Generic -> AclItem(text)
                         Template.Domain -> AclItem(IDN.toASCII(text, IDN.ALLOW_UNASSIGNED or IDN.USE_STD3_ASCII_RULES)
-                                .replace(".", "\\.").let { "(^|\\.)$it\$" })
+                                .replace(".", "\\.").let { "(?:^|\\.)$it\$" })
                         Template.Url -> AclItem(text, true)
                     }
                 }, arg)
@@ -362,7 +362,7 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         }
     }
 
-    private val isEnabled get() = (activity as MainActivity).state == BaseService.State.Stopped ||
+    private val isEnabled get() = (activity as? MainActivity)?.state == BaseService.State.Stopped ||
             Core.currentProfile?.first?.route != Acl.CUSTOM_RULES
 
     private val selectedItems = HashSet<Any>()
@@ -370,7 +370,6 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
     private lateinit var list: RecyclerView
     private var mode: ActionMode? = null
     private lateinit var undoManager: UndoSnackbarManager<Any>
-    private val clipboard by lazy { requireContext().getSystemService<ClipboardManager>()!! }
 
     private fun onSelectedItemsUpdated() {
         if (selectedItems.isEmpty()) mode?.finish() else if (mode == null) mode = toolbar.startActionMode(this)
@@ -384,7 +383,7 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         view.setOnApplyWindowInsetsListener(ListHolderListener)
         if (savedInstanceState != null) {
             selectedItems.addAll(savedInstanceState.getStringArray(SELECTED_SUBNETS)
-                    ?.mapNotNull(Subnet.Companion::fromString) ?: listOf())
+                    ?.mapNotNull { Subnet.fromString(it) } ?: listOf())
             selectedItems.addAll(savedInstanceState.getStringArray(SELECTED_HOSTNAMES)
                     ?: arrayOf())
             selectedItems.addAll(savedInstanceState.getStringArray(SELECTED_URLS)?.map { URL(it) }
@@ -400,8 +399,9 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         list.layoutManager = LinearLayoutManager(activity, RecyclerView.VERTICAL, false)
         list.itemAnimator = DefaultItemAnimator()
         list.adapter = adapter
+        FastScrollerBuilder(list).useMd2Style().build()
         undoManager = UndoSnackbarManager(activity, adapter::undo)
-        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.START or ItemTouchHelper.END) {
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.START) {
             override fun getSwipeDirs(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder): Int =
                     if (isEnabled && selectedItems.isEmpty()) super.getSwipeDirs(recyclerView, viewHolder) else 0
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) =
@@ -437,7 +437,8 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
                 is URL -> acl.urls.add(it)
             }
         }
-        clipboard.setPrimaryClip(ClipData.newPlainText(null, acl.toString()))
+        (activity as MainActivity).snackbar().setText(if (Core.trySetPrimaryClip(acl.toString()))
+            R.string.action_export_msg else R.string.action_export_err).show()
     }
 
     override fun onMenuItemClick(item: MenuItem): Boolean = when (item.itemId) {
@@ -447,10 +448,10 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         }
         R.id.action_import_clipboard -> {
             try {
-                check(adapter.addToProxy(clipboard.primaryClip!!.getItemAt(0).text.toString()) != null)
+                check(adapter.addToProxy(Core.clipboard.primaryClip!!.getItemAt(0).text.toString()) != null)
             } catch (exc: Exception) {
                 (activity as MainActivity).snackbar().setText(R.string.action_import_err).show()
-                exc.printStackTrace()
+                Timber.d(exc)
             }
             true
         }

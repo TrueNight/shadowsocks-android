@@ -52,7 +52,7 @@ class ProfilesDialogFragment : LeanbackListPreferenceDialogFragmentCompat() {
         }
     }
     private inner class ProfilesAdapter : RecyclerView.Adapter<ProfileViewHolder>() {
-        val profiles = ProfileManager.getAllProfiles()!!
+        val profiles = ProfileManager.getActiveProfiles()!!
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ProfileViewHolder(
                 LayoutInflater.from(parent.context).inflate(R.layout.leanback_list_preference_item_single_2,
@@ -77,8 +77,8 @@ class ProfilesDialogFragment : LeanbackListPreferenceDialogFragmentCompat() {
     private val adapter = ProfilesAdapter()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        return super.onCreateView(inflater, container, savedInstanceState)!!.also {
-            val list = it.findViewById<RecyclerView>(android.R.id.list)
+        return super.onCreateView(inflater, container, savedInstanceState)!!.apply {
+            val list = findViewById<RecyclerView>(android.R.id.list)
             list.adapter = adapter
             list.layoutManager!!.scrollToPosition(adapter.profiles.indexOfFirst { it.id == DataStore.profileId })
         }

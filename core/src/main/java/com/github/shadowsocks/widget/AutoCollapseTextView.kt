@@ -1,6 +1,5 @@
 /*******************************************************************************
  *                                                                             *
- *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2018 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2018 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -24,10 +23,10 @@ package com.github.shadowsocks.widget
 import android.content.Context
 import android.graphics.Rect
 import android.util.AttributeSet
-import android.util.Log
 import android.view.MotionEvent
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.view.isGone
+import timber.log.Timber
 
 class AutoCollapseTextView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null,
                                                      defStyleAttr: Int = 0) :
@@ -37,18 +36,17 @@ class AutoCollapseTextView @JvmOverloads constructor(context: Context, attrs: At
         isGone = text.isNullOrEmpty()
     }
 
-    override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: Rect?) {
-        try {
-            super.onFocusChanged(focused, direction, previouslyFocusedRect)
-        } catch (e: IndexOutOfBoundsException) {
-            Log.w("AutoCollapseTextView", e)
-        }
+    // #1874
+    override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: Rect?) = try {
+        super.onFocusChanged(focused, direction, previouslyFocusedRect)
+    } catch (e: IndexOutOfBoundsException) {
+        Timber.w(e)
     }
 
     override fun onTouchEvent(event: MotionEvent?) = try {
         super.onTouchEvent(event)
     } catch (e: IndexOutOfBoundsException) {
-        Log.w("AutoCollapseTextView", e)
+        Timber.w(e)
         false
     }
 }

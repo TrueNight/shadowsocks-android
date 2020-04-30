@@ -23,11 +23,10 @@ package com.github.shadowsocks.bg
 import android.app.Service
 import android.content.Intent
 import com.github.shadowsocks.Core
-import com.github.shadowsocks.net.HostsFile
 import com.github.shadowsocks.preference.DataStore
 import java.io.File
 
-class TransproxyService : Service(), LocalDnsService.Interface {
+class TransproxyService : Service(), BaseService.Interface {
     override val data = BaseService.Data(this)
     override val tag: String get() = "ShadowsocksTransproxyService"
     override fun createNotification(profileName: String): ServiceNotification =
@@ -35,7 +34,7 @@ class TransproxyService : Service(), LocalDnsService.Interface {
 
     override fun onBind(intent: Intent) = super.onBind(intent)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
-            super<LocalDnsService.Interface>.onStartCommand(intent, flags, startId)
+            super<BaseService.Interface>.onStartCommand(intent, flags, startId)
 
     private fun startRedsocksDaemon() {
         File(Core.deviceStorage.noBackupFilesDir, "redsocks.conf").writeText("""base {
@@ -57,9 +56,9 @@ redsocks {
                 File(applicationInfo.nativeLibraryDir, Executable.REDSOCKS).absolutePath, "-c", "redsocks.conf"))
     }
 
-    override suspend fun startProcesses(hosts: HostsFile) {
+    override suspend fun startProcesses() {
         startRedsocksDaemon()
-        super.startProcesses(hosts)
+        super.startProcesses()
     }
 
     override fun onDestroy() {

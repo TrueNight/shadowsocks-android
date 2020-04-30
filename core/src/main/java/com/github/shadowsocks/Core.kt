@@ -21,47 +21,50 @@
 
 package com.github.shadowsocks
 
-import android.app.Application
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
+import android.app.*
 import android.app.admin.DevicePolicyManager
-import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.os.Build
 import android.os.UserManager
+import android.util.Log
 import androidx.annotation.RequiresApi
+import androidx.annotation.VisibleForTesting
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.github.shadowsocks.acl.Acl
 import com.github.shadowsocks.aidl.ShadowsocksConnection
+import com.github.shadowsocks.core.BuildConfig
 import com.github.shadowsocks.core.R
 import com.github.shadowsocks.database.Profile
 import com.github.shadowsocks.database.ProfileManager
-import com.github.shadowsocks.net.TcpFastOpen
 import com.github.shadowsocks.preference.DataStore
+import com.github.shadowsocks.subscription.SubscriptionService
 import com.github.shadowsocks.utils.*
 import kotlinx.coroutines.DEBUG_PROPERTY_NAME
 import kotlinx.coroutines.DEBUG_PROPERTY_VALUE_ON
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.io.File
 import java.io.IOException
 import kotlin.reflect.KClass
 
 object Core {
-    const val TAG = "Core"
-
     lateinit var app: Application
+        @VisibleForTesting set
     lateinit var configureIntent: (Context) -> PendingIntent
+    val activity by lazy { app.getSystemService<ActivityManager>()!! }
+    val clipboard by lazy { app.getSystemService<ClipboardManager>()!! }
     val connectivity by lazy { app.getSystemService<ConnectivityManager>()!! }
+    val notification by lazy { app.getSystemService<NotificationManager>()!! }
     val packageInfo: PackageInfo by lazy { getPackageInfo(app.packageName) }
     val deviceStorage by lazy { if (Build.VERSION.SDK_INT < 24) app else DeviceStorageApp(app) }
     val directBootSupported by lazy {
@@ -92,15 +95,16 @@ object Core {
 
         if (Build.VERSION.SDK_INT >= 24) {  // migrate old files
             deviceStorage.moveDatabaseFrom(app, Key.DB_PUBLIC)
-            val old = Acl.getFile(Acl.CUSTOM_RULES, app)
+            val old = Acl.getFile(Acl.CUSTOM_RULES_USER, app)
             if (old.canRead()) {
-                Acl.getFile(Acl.CUSTOM_RULES).writeText(old.readText())
+                Acl.getFile(Acl.CUSTOM_RULES_USER).writeText(old.readText())
                 old.delete()
             }
         }
 
         // overhead of debug mode is minimal: https://github.com/Kotlin/kotlinx.coroutines/blob/f528898/docs/debugging.md#debug-mode
         System.setProperty(DEBUG_PROPERTY_NAME, DEBUG_PROPERTY_VALUE_ON)
+        // multiple processes needs manual set-up
         WorkManager.initialize(deviceStorage, Configuration.Builder().apply {
             setExecutor { GlobalScope.launch { it.run() } }
             setTaskExecutor { GlobalScope.launch { it.run() } }
@@ -109,7 +113,6 @@ object Core {
         // handle data restored/crash
         if (Build.VERSION.SDK_INT >= 24 && DataStore.directBootAware &&
                 app.getSystemService<UserManager>()?.isUserUnlocked == true) DirectBoot.flushTrafficStats()
-        if (DataStore.tcpFastOpen && !TcpFastOpen.sendEnabled) TcpFastOpen.enableTimeout()
         if (DataStore.publicStore.getLong(Key.assetUpdateTime, -1) != packageInfo.lastUpdateTime) {
             val assetManager = app.assets
             try {
@@ -117,7 +120,7 @@ object Core {
                     File(deviceStorage.noBackupFilesDir, file).outputStream().use { output -> input.copyTo(output) }
                 }
             } catch (e: IOException) {
-                printLog(e)
+                Timber.w(e)
             }
             DataStore.publicStore.putLong(Key.assetUpdateTime, packageInfo.lastUpdateTime)
         }
@@ -126,16 +129,16 @@ object Core {
 
     fun updateNotificationChannels() {
         if (Build.VERSION.SDK_INT >= 26) @RequiresApi(26) {
-            val nm = app.getSystemService<NotificationManager>()!!
-            nm.createNotificationChannels(listOf(
+            notification.createNotificationChannels(listOf(
                     NotificationChannel("service-vpn", app.getText(R.string.service_vpn),
                             if (Build.VERSION.SDK_INT >= 28) NotificationManager.IMPORTANCE_MIN
                             else NotificationManager.IMPORTANCE_LOW),   // #1355
                     NotificationChannel("service-proxy", app.getText(R.string.service_proxy),
                             NotificationManager.IMPORTANCE_LOW),
                     NotificationChannel("service-transproxy", app.getText(R.string.service_transproxy),
-                            NotificationManager.IMPORTANCE_LOW)))
-            nm.deleteNotificationChannel("service-nat") // NAT mode is gone for good
+                            NotificationManager.IMPORTANCE_LOW),
+                    SubscriptionService.notificationChannel))
+            notification.deleteNotificationChannel("service-nat")   // NAT mode is gone for good
         }
     }
 
@@ -143,23 +146,15 @@ object Core {
             if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
             else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES)!!
 
-    fun startService() = ContextCompat.startForegroundService(app, Intent(app, ShadowsocksConnection.serviceClass))
-    fun reloadService() = app.sendBroadcast(Intent(Action.RELOAD))
-    fun stopService() = app.sendBroadcast(Intent(Action.CLOSE))
-
-    fun listenForPackageChanges(onetime: Boolean = true, callback: () -> Unit) = object : BroadcastReceiver() {
-        init {
-            app.registerReceiver(this, IntentFilter().apply {
-                addAction(Intent.ACTION_PACKAGE_ADDED)
-                addAction(Intent.ACTION_PACKAGE_REMOVED)
-                addDataScheme("package")
-            })
-        }
-
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return
-            callback()
-            if (onetime) app.unregisterReceiver(this)
-        }
+    fun trySetPrimaryClip(clip: String) = try {
+        clipboard.setPrimaryClip(ClipData.newPlainText(null, clip))
+        true
+    } catch (e: RuntimeException) {
+        Timber.d(e)
+        false
     }
+
+    fun startService() = ContextCompat.startForegroundService(app, Intent(app, ShadowsocksConnection.serviceClass))
+    fun reloadService() = app.sendBroadcast(Intent(Action.RELOAD).setPackage(app.packageName))
+    fun stopService() = app.sendBroadcast(Intent(Action.CLOSE).setPackage(app.packageName))
 }

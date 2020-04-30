@@ -2,7 +2,6 @@
 
 [![API](https://img.shields.io/badge/API-21%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=21)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fshadowsocks%2Fshadowsocks-android.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fshadowsocks%2Fshadowsocks-android?ref=badge_shield)
 
 <a href="https://play.google.com/store/apps/details?id=xyz.truenight.shadowsocks"><img src="https://play.google.com/intl/en_us/badges/images/generic/en-play-badge.png" height="48"></a>
 
@@ -12,21 +11,21 @@
 * JDK 1.8
 * Android SDK
   - Android NDK
+* Rust with Android targets installed  
+  `$ rustup target install armv7-linux-androideabi aarch64-linux-android i686-linux-android x86_64-linux-android`
 
 ### BUILD
 
 You can check whether the latest commit builds under UNIX environment by checking Travis status.
 
+* Install prerequisites
 * Clone the repo using `git clone --recurse-submodules <repo>` or update submodules using `git submodule update --init --recursive`
 * Build it using Android Studio or gradle script
 
 ### BUILD WITH DOCKER
 
-```bash
-mkdir build
-sudo chown 3434:3434 build
-docker run --rm -v ${PWD}/build:/build circleci/android:api-28-ndk bash -c "cd /build; git clone https://github.com/shadowsocks/shadowsocks-android; cd shadowsocks-android; git submodule update --init --recursive; ./gradlew assembleDebug"
-```
+* Clone the repo using `git clone --recurse-submodules <repo>` or update submodules using `git submodule update --init --recursive`
+* Run `docker run --rm -v ${PWD}:/build -w /build shadowsocks/android-ndk-go bash -c "./gradlew assembleDebug"`
 
 ### CONTRIBUTING
 
@@ -39,18 +38,13 @@ If you are interested in contributing or getting involved with this project, ple
 
 <ul>
     <li>redsocks: <a href="https://github.com/shadowsocks/redsocks/blob/shadowsocks-android/README">APL 2.0</a></li>
-    <li>mbed TLS: <a href="https://github.com/ARMmbed/mbedtls/blob/development/LICENSE">APL 2.0</a></li>
     <li>libevent: <a href="https://github.com/shadowsocks/libevent/blob/master/LICENSE">BSD</a></li>
     <li>tun2socks: <a href="https://github.com/shadowsocks/badvpn/blob/shadowsocks-android/COPYING">BSD</a></li>
-    <li>pcre: <a href="https://android.googlesource.com/platform/external/pcre/+/master/dist2/LICENCE">BSD</a></li>
-    <li>libancillary: <a href="https://github.com/shadowsocks/libancillary/blob/shadowsocks-android/COPYING">BSD</a></li>
-    <li>shadowsocks-libev: <a href="https://github.com/shadowsocks/shadowsocks-libev/blob/master/LICENSE">GPLv3</a></li>
-    <li>libev: <a href="https://github.com/shadowsocks/libev/blob/master/LICENSE">GPLv2</a></li>
+    <li>shadowsocks-rust: <a href="https://github.com/shadowsocks/shadowsocks-rust/blob/master/LICENSE">MIT</a></li>
     <li>libsodium: <a href="https://github.com/jedisct1/libsodium/blob/master/LICENSE">ISC</a></li>
+    <li>OpenSSL: <a href="https://www.openssl.org/source/license-openssl-ssleay.txt">OpenSSL License</a></li>
 </ul>
 
-
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fshadowsocks%2Fshadowsocks-android.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fshadowsocks%2Fshadowsocks-android?ref=badge_large)
 
 ### LICENSE
 
