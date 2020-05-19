@@ -38,7 +38,7 @@ cargo {
     module = "src/main/rust/shadowsocks-rust"
     libname = "sslocal"
     targets = listOf("arm", "arm64", "x86", "x86_64")
-    profile = findProperty("CARGO_PROFILE")?.toString() ?: "release"
+    profile = findProperty("CARGO_PROFILE")?.toString() ?: currentFlavor
     extraCargoBuildArguments = listOf("--bin", libname!!)
     featureSpec.noDefaultBut(arrayOf(
             "sodium",
@@ -50,13 +50,14 @@ cargo {
             "local-flow-stat",
             "local-dns-relay"))
     exec = { spec, toolchain ->
-        spec.environment("RUST_ANDROID_GRADLE_CC_LINK_ARG", "-o,target/${toolchain.target}/$profile/lib$libname.so")
+        spec.environment("RUST_ANDROID_GRADLE_LINKER_WRAPPER_PY", "$projectDir/$module/../linker-wrapper.py")
+        spec.environment("RUST_ANDROID_GRADLE_TARGET", "target/${toolchain.target}/$profile/lib$libname.so")
     }
 }
 
 tasks.whenTaskAdded {
     when (name) {
-        "javaPreCompileDebug", "javaPreCompileRelease" -> dependsOn("cargoBuild")
+        "mergeDebugJniLibFolders", "mergeReleaseJniLibFolders" -> dependsOn("cargoBuild")
     }
 }
 
