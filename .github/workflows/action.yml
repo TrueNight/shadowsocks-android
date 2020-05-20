@@ -31,4 +31,10 @@ jobs:
     
     # Runs a set of commands using the runners shell
     - name: Build debug apk
-      run: ./gradlew assembleDebug
+      run: ./gradlew assembleDebug check -PCARGO_PROFILE=debug
+    
+    
+    - uses: actions/upload-artifact@v2
+      with:
+        name: artifact
+        path: mobile/build/outputs/apk
