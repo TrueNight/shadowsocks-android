@@ -1,6 +1,5 @@
 /*******************************************************************************
  *                                                                             *
- *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2019 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2019 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -27,13 +26,13 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
-import android.util.Log
 import com.github.shadowsocks.Core
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.runBlocking
+import timber.log.Timber
 import java.net.UnknownHostException
 
 object DefaultNetworkListener {
@@ -105,6 +104,10 @@ object DefaultNetworkListener {
     private val request = NetworkRequest.Builder().apply {
         addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+        if (Build.VERSION.SDK_INT == 23) {  // workarounds for OEM bugs
+            removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            removeCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
+        }
     }.build()
     /**
      * Unfortunately registerDefaultNetworkCallback is going to return VPN interface since Android P DP1:
@@ -125,7 +128,7 @@ object DefaultNetworkListener {
             Core.connectivity.requestNetwork(request, Callback)
         } catch (e: SecurityException) {
             // known bug: https://stackoverflow.com/a/33509180/2245107
-            if (Build.VERSION.SDK_INT != 23) Log.w("DefaultNetworkListener", e)
+            if (Build.VERSION.SDK_INT != 23) Timber.w(e)
             fallback = true
         }
     }

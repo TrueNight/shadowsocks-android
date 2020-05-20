@@ -3,12 +3,18 @@
           package="com.github.shadowsocks.core"
           android:installLocation="internalOnly">
 
+    <permission
+        android:name="${applicationId}.SERVICE"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="${applicationId}.SERVICE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission-sdk-23 android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
 
     <uses-feature android:name="android.software.leanback"
                   android:required="false"/>
@@ -19,6 +25,7 @@
         android:extractNativeLibs="true"
         android:fullBackupContent="@xml/backup_descriptor"
         android:fullBackupOnly="true"
+        android:hasFragileUserData="true"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -53,6 +60,11 @@
             android:exported="false">
         </service>
 
+        <service
+            android:name="com.github.shadowsocks.subscription.SubscriptionService"
+            android:exported="false">
+        </service>
+
         <activity
             android:name="com.github.shadowsocks.UrlImportActivity"
             android:theme="@style/Theme.AppCompat.Translucent"
@@ -82,16 +94,24 @@
             </intent-filter>
         </receiver>
 
+        <service android:name="androidx.room.MultiInstanceInvalidationService"
+                 android:process=":bg"/>
         <!-- https://android.googlesource.com/platform/frameworks/support/+/androidx-master-dev/work/workmanager/src/main/AndroidManifest.xml -->
         <provider android:name="androidx.work.impl.WorkManagerInitializer"
                   tools:node="remove"/>
         <service android:name="androidx.work.impl.background.systemalarm.SystemAlarmService"
                  android:process=":bg"
                  android:directBootAware="true"
+                 tools:ignore="Instantiatable"
                  tools:replace="android:directBootAware"/>
         <service android:name="androidx.work.impl.background.systemjob.SystemJobService"
                  android:process=":bg"
                  android:directBootAware="true"
+                 tools:replace="android:directBootAware"/>
+        <service android:name="androidx.work.impl.foreground.SystemForegroundService"
+                 android:process=":bg"
+                 android:directBootAware="true"
+                 tools:ignore="Instantiatable"
                  tools:replace="android:directBootAware"/>
         <receiver android:name="androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver"
                   android:process=":bg"
@@ -126,6 +146,7 @@
         <service android:name="androidx.work.impl.background.gcm.WorkManagerGcmService"
                  android:process=":bg"
                  android:directBootAware="true"
+                 tools:ignore="Instantiatable"
                  tools:replace="android:directBootAware"/>
     </application>
 </manifest>

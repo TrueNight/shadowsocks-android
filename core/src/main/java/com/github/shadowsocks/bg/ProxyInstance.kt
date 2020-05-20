@@ -25,7 +25,6 @@ import android.content.Context
 import com.github.shadowsocks.acl.Acl
 import com.github.shadowsocks.acl.AclSyncer
 import com.github.shadowsocks.database.Profile
-import com.github.shadowsocks.net.HostsFile
 import com.github.shadowsocks.plugin.PluginConfiguration
 import com.github.shadowsocks.plugin.PluginManager
 import com.github.shadowsocks.preference.DataStore
@@ -35,7 +34,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
-import java.net.UnknownHostException
+import java.net.*
+import java.security.MessageDigest
 
 /**
  * This class sets up environment for ss-local.
@@ -43,25 +43,16 @@ import java.net.UnknownHostException
 class ProxyInstance(val profile: Profile, private val route: String = profile.route) {
     private var configFile: File? = null
     var trafficMonitor: TrafficMonitor? = null
-    private val plugin = PluginConfiguration(profile.plugin ?: "").selectedOptions
-    val pluginPath by lazy { PluginManager.init(plugin) }
+    val plugin by lazy { PluginManager.init(PluginConfiguration(profile.plugin ?: "")) }
 
     suspend fun init(service: BaseService.Interface, hosts: HostsFile) {
-        if (route == Acl.CUSTOM_RULES) try {
-            withContext(Dispatchers.IO) {
-                Acl.save(Acl.CUSTOM_RULES, Acl.customRules.flatten(10, service::openConnection))
-            }
-        } catch (e: IOException) {
-            throw BaseService.ExpectedExceptionWrapper(e)
-        }
-
         // it's hard to resolve DNS on a specific interface so we'll do it here
         if (profile.host.parseNumericAddress() == null) {
-            profile.host = (hosts.resolve(profile.host).firstOrNull() ?: try {
+            profile.host = try {
                 service.resolver(profile.host).firstOrNull()
             } catch (_: IOException) {
                 null
-            })?.hostAddress ?: throw UnknownHostException()
+            }?.hostAddress ?: throw UnknownHostException()
         }
     }
 
@@ -69,32 +60,38 @@ class ProxyInstance(val profile: Profile, private val route: String = profile.ro
      * Sensitive shadowsocks configuration file requires extra protection. It may be stored in encrypted storage or
      * device storage, depending on which is currently available.
      */
-    fun start(service: BaseService.Interface, stat: File, configFile: File, extraFlag: String? = null) {
+    fun start(service: BaseService.Interface, stat: File, configFile: File, extraFlag: String? = null,
+              dnsRelay: Boolean = true) {
         trafficMonitor = TrafficMonitor(stat)
 
         this.configFile = configFile
         val config = profile.toJson()
-        if (pluginPath != null) config.put("plugin", pluginPath).put("plugin_opts", plugin.toString())
+        val vpnFlags = if (service.isVpnService) ";V" else ""
+        plugin?.let { (path, opts) -> config.put("plugin", path).put("plugin_opts", opts.toString() + vpnFlags) }
+        config.put("local_address", DataStore.listenAddress)
+        config.put("local_port", DataStore.portProxy)
         configFile.writeText(config.toString())
 
-        val cmd = service.buildAdditionalArguments(arrayListOf(
+        val cmd = arrayListOf(
                 File((service as Context).applicationInfo.nativeLibraryDir, Executable.SS_LOCAL).absolutePath,
-                "-b", DataStore.listenAddress,
-                "-l", DataStore.portProxy.toString(),
-                "-t", "600",
-                "-S", stat.absolutePath,
-                "-c", configFile.absolutePath))
+                "--stat-path", stat.absolutePath,
+                "-c", configFile.absolutePath)
+        if (service.isVpnService) cmd += arrayListOf("--vpn")
         if (extraFlag != null) cmd.add(extraFlag)
+        if (dnsRelay) try {
+            URI("dns://${profile.remoteDns}")
+        } catch (e: URISyntaxException) {
+            throw BaseService.ExpectedExceptionWrapper(e)
+        }.let { dns ->
+            cmd += arrayListOf(
+                    "--dns-relay", "${DataStore.listenAddress}:${DataStore.portLocalDns}",
+                    "--remote-dns", "${dns.host!!}:${if (dns.port < 0) 53 else dns.port}")
+        }
 
         if (route != Acl.ALL) {
             cmd += "--acl"
             cmd += Acl.getFile(route).absolutePath
         }
-
-        // for UDP profile, it's only going to operate in UDP relay mode-only so this flag has no effect
-        if (profile.route == Acl.ALL || profile.route == Acl.BYPASS_LAN) cmd += "-D"
-
-        if (DataStore.tcpFastOpen) cmd += "--fast-open"
 
         service.data.processes!!.start(cmd)
     }

@@ -29,7 +29,6 @@ import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
 import android.os.RemoteException
-import android.util.Log
 import android.view.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.browser.customtabs.CustomTabColorSchemeParams
@@ -48,6 +47,7 @@ import com.github.shadowsocks.aidl.TrafficStats
 import com.github.shadowsocks.bg.BaseService
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.preference.OnPreferenceDataStoreChangeListener
+import com.github.shadowsocks.subscription.SubscriptionFragment
 import com.github.shadowsocks.utils.Key
 import com.github.shadowsocks.utils.SingleInstanceActivity
 import com.github.shadowsocks.widget.ListHolderListener
@@ -55,11 +55,11 @@ import com.github.shadowsocks.widget.ServiceButton
 import com.github.shadowsocks.widget.StatsBar
 import com.google.android.material.navigation.NavigationView
 import com.google.android.material.snackbar.Snackbar
+import timber.log.Timber
 
 class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPreferenceDataStoreChangeListener,
         NavigationView.OnNavigationItemSelectedListener {
     companion object {
-        private const val TAG = "ShadowsocksMainActivity"
         private const val REQUEST_CONNECT = 1
 
         var stateListener: ((BaseService.State) -> Unit)? = null
@@ -101,7 +101,7 @@ class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPref
         if (profileId == 0L) this@MainActivity.stats.updateTraffic(
                 stats.txRate, stats.rxRate, stats.txTotal, stats.rxTotal)
         if (state != BaseService.State.Stopping) {
-            (supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ToolbarFragment)
+            (supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ProfilesFragment)
                     ?.onTrafficUpdated(profileId, stats)
         }
     }
@@ -147,7 +147,7 @@ class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPref
             resultCode == Activity.RESULT_OK -> Core.startService()
             else -> {
                 snackbar().setText(R.string.vpn_permission_denied).show()
-                Log.w(TAG, "Failed to start VpnService from onActivityResult: $data")
+                Timber.e("Failed to start VpnService from onActivityResult: $data")
             }
         }
     }
@@ -201,7 +201,10 @@ class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPref
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         if (item.isChecked) drawer.closeDrawers() else {
             when (item.itemId) {
-                R.id.profiles -> displayFragment(ProfilesFragment())
+                R.id.profiles -> {
+                    displayFragment(ProfilesFragment())
+                    connection.bandwidthTimeout = connection.bandwidthTimeout   // request stats update
+                }
                 R.id.globalSettings -> displayFragment(GlobalSettingsFragment())
 //                R.id.about -> {
 //                    displayFragment(AboutFragment())
@@ -211,6 +214,7 @@ class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPref
                     return true
                 }
                 R.id.customRules -> displayFragment(CustomRulesFragment())
+                R.id.subscriptions -> displayFragment(SubscriptionFragment())
                 else -> return false
             }
             item.isChecked = true

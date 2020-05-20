@@ -20,18 +20,11 @@
     <PreferenceCategory
         app:key="settings"
         app:title="@string/settings"
-        app:initialExpandedChildrenCount="3">
+        app:initialExpandedChildrenCount="1">
         <SwitchPreference
             app:key="isAutoConnect"
             app:summary="@string/auto_connect_summary"
             app:title="@string/auto_connect"/>
-        <SwitchPreference
-            app:key="tcp_fastopen"
-            app:summary="@string/tcp_fastopen_summary"
-            app:title="TCP Fast Open"/>
-        <EditTextPreference
-            app:key="hosts"
-            app:title="hosts"/>
 
         <ListPreference
             app:key="serviceMode"
@@ -60,5 +53,9 @@
     <Preference
         app:key="about"
         app:title="@string/about"/>
+    <Preference
+        app:key="about.ossLicenses"
+        app:title="@string/oss_license_title"
+        app:summary="@string/preferences_license_summary"/>
 
 </PreferenceScreen>

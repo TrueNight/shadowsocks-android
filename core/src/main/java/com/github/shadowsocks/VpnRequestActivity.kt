@@ -1,6 +1,5 @@
 /*******************************************************************************
  *                                                                             *
- *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -27,7 +26,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.getSystemService
@@ -35,10 +33,10 @@ import com.github.shadowsocks.core.R
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.Key
 import com.github.shadowsocks.utils.broadcastReceiver
+import timber.log.Timber
 
 class VpnRequestActivity : AppCompatActivity() {
     companion object {
-        private const val TAG = "VpnRequestActivity"
         private const val REQUEST_CONNECT = 1
     }
 
@@ -66,7 +64,7 @@ class VpnRequestActivity : AppCompatActivity() {
         if (requestCode != REQUEST_CONNECT) return super.onActivityResult(requestCode, resultCode, data)
         if (resultCode == RESULT_OK) Core.startService() else {
             Toast.makeText(this, R.string.vpn_permission_denied, Toast.LENGTH_LONG).show()
-            Log.e(TAG, "Failed to start VpnService from onActivityResult: $data")
+            Timber.e("Failed to start VpnService from onActivityResult: $data")
         }
         finish()
     }

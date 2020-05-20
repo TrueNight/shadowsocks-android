@@ -25,8 +25,6 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
@@ -40,8 +38,8 @@ import android.widget.Filterable
 import android.widget.SearchView
 import androidx.annotation.UiThread
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.getSystemService
 import androidx.core.util.set
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -49,14 +47,19 @@ import com.github.shadowsocks.Core.app
 import com.github.shadowsocks.database.ProfileManager
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.DirectBoot
-import com.github.shadowsocks.utils.Key
 import com.github.shadowsocks.utils.SingleInstanceActivity
+import com.github.shadowsocks.utils.listenForPackageChanges
 import com.github.shadowsocks.widget.ListHolderListener
 import com.github.shadowsocks.widget.ListListener
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.android.synthetic.main.layout_apps.*
 import kotlinx.android.synthetic.main.layout_apps_item.view.*
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import me.zhanghai.android.fastscroll.FastScrollerBuilder
+import me.zhanghai.android.fastscroll.PopupTextProvider
 import kotlin.coroutines.coroutineContext
 
 class AppManager : AppCompatActivity() {
@@ -68,7 +71,7 @@ class AppManager : AppCompatActivity() {
         private var receiver: BroadcastReceiver? = null
         private var cachedApps: Map<String, PackageInfo>? = null
         private fun getCachedApps(pm: PackageManager) = synchronized(AppManager) {
-            if (receiver == null) receiver = Core.listenForPackageChanges {
+            if (receiver == null) receiver = app.listenForPackageChanges {
                 synchronized(AppManager) {
                     receiver = null
                     cachedApps = null
@@ -76,7 +79,8 @@ class AppManager : AppCompatActivity() {
                 instance?.loadApps()
             }
             // Labels and icons can change on configuration (locale, etc.) changes, therefore they are not cached.
-            val cachedApps = cachedApps ?: pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
+            val cachedApps = cachedApps ?: pm.getInstalledPackages(
+                    PackageManager.GET_PERMISSIONS or PackageManager.MATCH_UNINSTALLED_PACKAGES)
                     .filter {
                         when (it.packageName) {
                             app.packageName -> false
@@ -125,7 +129,7 @@ class AppManager : AppCompatActivity() {
         }
     }
 
-    private inner class AppsAdapter : RecyclerView.Adapter<AppViewHolder>(), Filterable {
+    private inner class AppsAdapter : RecyclerView.Adapter<AppViewHolder>(), Filterable, PopupTextProvider {
         private var filteredApps = apps
 
         suspend fun reload() {
@@ -167,10 +171,11 @@ class AppManager : AppCompatActivity() {
             }
         }
         override fun getFilter(): Filter = filterImpl
+
+        override fun getPopupText(position: Int) = filteredApps[position].name.firstOrNull()?.toString() ?: ""
     }
 
     private val proxiedUids = SparseBooleanArray()
-    private val clipboard by lazy { getSystemService<ClipboardManager>()!! }
     private var loader: Job? = null
     private var apps = emptyList<ProxiedApp>()
     private val appsAdapter = AppsAdapter()
@@ -201,7 +206,7 @@ class AppManager : AppCompatActivity() {
     @UiThread
     private fun loadApps() {
         loader?.cancel()
-        loader = GlobalScope.launch(Dispatchers.Main.immediate) {
+        loader = lifecycleScope.launchWhenCreated {
             loading.crossFadeFrom(list)
             val adapter = list.adapter as AppsAdapter
             withContext(Dispatchers.IO) { adapter.reload() }
@@ -241,6 +246,7 @@ class AppManager : AppCompatActivity() {
         list.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
         list.itemAnimator = DefaultItemAnimator()
         list.adapter = appsAdapter
+        FastScrollerBuilder(list).useMd2Style().build()
 
         search.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?) = false
@@ -263,6 +269,7 @@ class AppManager : AppCompatActivity() {
                     val proxiedAppString = DataStore.individual
                     profiles.forEach {
                         it.individual = proxiedAppString
+                        it.bypass = DataStore.bypass
                         ProfileManager.updateProfile(it)
                     }
                     if (DataStore.directBootAware) DirectBoot.update()
@@ -271,13 +278,12 @@ class AppManager : AppCompatActivity() {
                 return true
             }
             R.id.action_export_clipboard -> {
-                clipboard.setPrimaryClip(ClipData.newPlainText(Key.individual,
-                        "${DataStore.bypass}\n${DataStore.individual}"))
-                Snackbar.make(list, R.string.action_export_msg, Snackbar.LENGTH_LONG).show()
+                Snackbar.make(list, if (Core.trySetPrimaryClip("${DataStore.bypass}\n${DataStore.individual}"))
+                    R.string.action_export_msg else R.string.action_export_err, Snackbar.LENGTH_LONG).show()
                 return true
             }
             R.id.action_import_clipboard -> {
-                val proxiedAppString = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+                val proxiedAppString = Core.clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                 if (!proxiedAppString.isNullOrEmpty()) {
                     val i = proxiedAppString.indexOf('\n')
                     try {
