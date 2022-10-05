@@ -7,6 +7,8 @@
 <a href="https://play.google.com/store/apps/details?id=xyz.truenight.shadowsocks"><img src="https://play.google.com/intl/en_us/badges/images/generic/en-play-badge.png" height="48"></a>
 
 
+Based on [shadowsocks/shadowsocks-android](https://github.com/shadowsocks/shadowsocks-android)
+
 ### PREREQUISITES
 
 * JDK 11+
