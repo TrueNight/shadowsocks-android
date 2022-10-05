@@ -1,15 +1,13 @@
 plugins {
     id("com.android.application")
     id("com.google.android.gms.oss-licenses-plugin")
-    id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
     kotlin("android")
     id("kotlin-parcelize")
 }
 
 setupApp()
 
-android.defaultConfig.applicationId = "com.github.shadowsocks"
+android.defaultConfig.applicationId = "xyz.truenight.shadowsocks"
 
 dependencies {
     val cameraxVersion = "1.0.1"
