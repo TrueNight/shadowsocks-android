@@ -28,6 +28,7 @@ import android.view.ViewGroup
 import android.widget.CheckedTextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -35,7 +36,6 @@ import com.github.shadowsocks.database.Profile
 import com.github.shadowsocks.database.ProfileManager
 import com.github.shadowsocks.plugin.PluginConfiguration
 import com.github.shadowsocks.preference.DataStore
-import com.github.shadowsocks.utils.SingleInstanceActivity
 import com.github.shadowsocks.utils.resolveResourceId
 import com.github.shadowsocks.widget.ListHolderListener
 import com.github.shadowsocks.widget.ListListener
@@ -64,7 +64,7 @@ class UdpFallbackProfileActivity : AppCompatActivity() {
     }
 
     inner class ProfilesAdapter : RecyclerView.Adapter<ProfileViewHolder>() {
-        internal val profiles = (ProfileManager.getAllProfiles()?.toMutableList() ?: mutableListOf())
+        internal val profiles = (ProfileManager.getActiveProfiles()?.toMutableList() ?: mutableListOf())
                 .filter { it.id != editingId && PluginConfiguration(it.plugin ?: "").selected.isEmpty() }
 
         override fun onBindViewHolder(holder: ProfileViewHolder, position: Int) =
@@ -85,7 +85,6 @@ class UdpFallbackProfileActivity : AppCompatActivity() {
             finish()
             return
         }
-        SingleInstanceActivity.register(this) ?: return
         setContentView(R.layout.layout_udp_fallback)
         ListHolderListener.setup(this)
 
@@ -95,7 +94,7 @@ class UdpFallbackProfileActivity : AppCompatActivity() {
         toolbar.setNavigationOnClickListener { finish() }
 
         findViewById<RecyclerView>(R.id.list).apply {
-            setOnApplyWindowInsetsListener(ListListener)
+            ViewCompat.setOnApplyWindowInsetsListener(this, ListListener)
             itemAnimator = DefaultItemAnimator()
             adapter = profilesAdapter
             layoutManager = LinearLayoutManager(this@UdpFallbackProfileActivity, RecyclerView.VERTICAL, false).apply {

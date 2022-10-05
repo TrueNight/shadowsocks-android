@@ -1,6 +1,6 @@
 /*******************************************************************************
  *                                                                             *
- *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
+ *  Copyright (C) 2019 by TrueNight <mike@frolov.dev>                          *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -25,24 +25,28 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.*
-import android.util.Log
-import androidx.core.content.getSystemService
+import android.os.Build
+import android.os.IBinder
+import android.os.RemoteCallbackList
+import android.os.RemoteException
 import com.github.shadowsocks.BootReceiver
 import com.github.shadowsocks.Core
 import com.github.shadowsocks.Core.app
+import com.github.shadowsocks.acl.Acl
 import com.github.shadowsocks.aidl.IShadowsocksService
 import com.github.shadowsocks.aidl.IShadowsocksServiceCallback
 import com.github.shadowsocks.aidl.TrafficStats
 import com.github.shadowsocks.core.R
-import com.github.shadowsocks.net.HostsFile
+import com.github.shadowsocks.net.DnsResolverCompat
 import com.github.shadowsocks.preference.DataStore
-import com.github.shadowsocks.utils.*
+import com.github.shadowsocks.utils.Action
+import com.github.shadowsocks.utils.broadcastReceiver
+import com.github.shadowsocks.utils.readableMessage
 import kotlinx.coroutines.*
+import timber.log.Timber
 import java.io.File
+import java.io.IOException
 import java.net.URL
-import java.net.UnknownHostException
-import java.util.*
 
 /**
  * This object uses WeakMap to simulate the effects of multi-inheritance.
@@ -70,6 +74,7 @@ object BaseService {
         var processes: GuardedProcessPool? = null
         var proxy: ProxyInstance? = null
         var udpFallback: ProxyInstance? = null
+        var localDns: LocalDnsWorker? = null
 
         var notification: ServiceNotification? = null
         val closeReceiver = broadcastReceiver { _, intent ->
@@ -117,7 +122,7 @@ object BaseService {
                         work(callbacks.getBroadcastItem(it))
                     } catch (_: RemoteException) {
                     } catch (e: Exception) {
-                        printLog(e)
+                        Timber.w(e)
                     }
                 }
             } finally {
@@ -127,7 +132,7 @@ object BaseService {
 
         private suspend fun loop() {
             while (true) {
-                delay(bandwidthListeners.values.min() ?: return)
+                delay(bandwidthListeners.values.minOrNull() ?: return)
                 val proxies = listOfNotNull(data?.proxy, data?.udpFallback)
                 val stats = proxies
                         .map { Pair(it.profile.id, it.trafficMonitor?.requestUpdate()) }
@@ -147,32 +152,29 @@ object BaseService {
 
         override fun startListeningForBandwidth(cb: IShadowsocksServiceCallback, timeout: Long) {
             launch {
-                val wasEmpty = bandwidthListeners.isEmpty()
-                if (bandwidthListeners.put(cb.asBinder(), timeout) == null) {
-                    if (wasEmpty) {
-                        check(looper == null)
-                        looper = launch { loop() }
-                    }
-                    if (data?.state != State.Connected) return@launch
-                    var sum = TrafficStats()
-                    val data = data
-                    val proxy = data?.proxy ?: return@launch
-                    proxy.trafficMonitor?.out.also { stats ->
-                        cb.trafficUpdated(proxy.profile.id, if (stats == null) sum else {
+                if (bandwidthListeners.isEmpty() and (bandwidthListeners.put(cb.asBinder(), timeout) == null)) {
+                    check(looper == null)
+                    looper = launch { loop() }
+                }
+                if (data?.state != State.Connected) return@launch
+                var sum = TrafficStats()
+                val data = data
+                val proxy = data?.proxy ?: return@launch
+                proxy.trafficMonitor?.out.also { stats ->
+                    cb.trafficUpdated(proxy.profile.id, if (stats == null) sum else {
+                        sum += stats
+                        stats
+                    })
+                }
+                data.udpFallback?.also { udpFallback ->
+                    udpFallback.trafficMonitor?.out.also { stats ->
+                        cb.trafficUpdated(udpFallback.profile.id, if (stats == null) TrafficStats() else {
                             sum += stats
                             stats
                         })
                     }
-                    data.udpFallback?.also { udpFallback ->
-                        udpFallback.trafficMonitor?.out.also { stats ->
-                            cb.trafficUpdated(udpFallback.profile.id, if (stats == null) TrafficStats() else {
-                                sum += stats
-                                stats
-                            })
-                        }
-                    }
-                    cb.trafficUpdated(0, sum)
                 }
+                cb.trafficUpdated(0, sum)
             }
         }
 
@@ -190,12 +192,12 @@ object BaseService {
             callbacks.unregister(cb)
         }
 
-        fun stateChanged(s: State, msg: String?) {
+        fun stateChanged(s: State, msg: String?) = launch {
             val profileName = profileName
             broadcast { it.stateChanged(s.ordinal, profileName, msg) }
         }
 
-        fun trafficPersisted(ids: List<Long>) {
+        fun trafficPersisted(ids: List<Long>) = launch {
             if (bandwidthListeners.isNotEmpty() && ids.isNotEmpty()) broadcast { item ->
                 if (bandwidthListeners.contains(item.asBinder())) ids.forEach(item::trafficPersisted)
             }
@@ -216,36 +218,31 @@ object BaseService {
         fun onBind(intent: Intent): IBinder? = if (intent.action == Action.SERVICE) data.binder else null
 
         fun forceLoad() {
-            val (profile, fallback) = Core.currentProfile
-                    ?: return stopRunner(false, (this as Context).getString(R.string.profile_empty))
-            if (profile.host.isEmpty() || profile.password.isEmpty() ||
-                    fallback != null && (fallback.host.isEmpty() || fallback.password.isEmpty())) {
-                stopRunner(false, (this as Context).getString(R.string.proxy_empty))
-                return
-            }
             val s = data.state
             when {
                 s == State.Stopped -> startRunner()
                 s.canStop -> stopRunner(true)
-                else -> Log.w(tag, "Illegal state when invoking use: $s")
+                else -> Timber.w("Illegal state $s when invoking use")
             }
         }
 
-        fun buildAdditionalArguments(cmd: ArrayList<String>): ArrayList<String> = cmd
+        val isVpnService get() = false
 
-        suspend fun startProcesses(hosts: HostsFile) {
-            val configRoot = (if (Build.VERSION.SDK_INT < 24 || app.getSystemService<UserManager>()
-                            ?.isUserUnlocked != false) app else Core.deviceStorage).noBackupFilesDir
+        suspend fun startProcesses() {
+            val context = if (Build.VERSION.SDK_INT < 24 || Core.user.isUserUnlocked) app else Core.deviceStorage
+            val configRoot = context.noBackupFilesDir
             val udpFallback = data.udpFallback
             data.proxy!!.start(this,
                     File(Core.deviceStorage.noBackupFilesDir, "stat_main"),
                     File(configRoot, CONFIG_FILE),
-                    if (udpFallback == null) "-u" else null)
-            check(udpFallback?.pluginPath == null) { "UDP fallback cannot have plugins" }
+                    if (udpFallback == null && data.proxy?.plugin == null) "tcp_and_udp" else "tcp_only")
+            if (udpFallback?.plugin != null) throw ExpectedExceptionWrapper(IllegalStateException(
+                    "UDP fallback cannot have plugins"))
             udpFallback?.start(this,
                     File(Core.deviceStorage.noBackupFilesDir, "stat_udp"),
                     File(configRoot, CONFIG_FILE_UDP),
-                    "-U")
+                    "udp_only", false)
+            data.localDns = LocalDnsWorker(this::rawResolver).apply { start() }
         }
 
         fun startRunner() {
@@ -259,6 +256,8 @@ object BaseService {
                 close(scope)
                 data.processes = null
             }
+            data.localDns?.shutdown(scope)
+            data.localDns = null
         }
 
         fun stopRunner(restart: Boolean = false, msg: String? = null) {
@@ -305,25 +304,29 @@ object BaseService {
                 listOfNotNull(data.proxy, data.udpFallback).forEach { it.trafficMonitor?.persistStats(it.profile.id) }
 
         suspend fun preInit() { }
-        suspend fun resolver(host: String) = DnsResolverCompat.resolveOnActiveNetwork(host)
+        suspend fun rawResolver(query: ByteArray) = DnsResolverCompat.resolveRawOnActiveNetwork(query)
         suspend fun openConnection(url: URL) = url.openConnection()
 
         fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
             val data = data
             if (data.state != State.Stopped) return Service.START_NOT_STICKY
-            val profilePair = Core.currentProfile
+            val expanded = Core.currentProfile
             this as Context
-            if (profilePair == null) {
+            if (expanded == null) {
                 // gracefully shutdown: https://stackoverflow.com/q/47337857/2245107
                 data.notification = createNotification("")
                 stopRunner(false, getString(R.string.profile_empty))
                 return Service.START_NOT_STICKY
             }
-            val (profile, fallback) = profilePair
-            profile.name = profile.formattedName    // save name for later queries
-            val proxy = ProxyInstance(profile)
-            data.proxy = proxy
-            data.udpFallback = if (fallback == null) null else ProxyInstance(fallback, profile.route)
+            val (profile, fallback) = expanded
+            try {
+                data.proxy = ProxyInstance(profile)
+                data.udpFallback = if (fallback == null) null else ProxyInstance(fallback, profile.route)
+            } catch (e: IllegalArgumentException) {
+                data.notification = createNotification("")
+                stopRunner(false, e.message)
+                return Service.START_NOT_STICKY
+            }
 
             BootReceiver.enabled = DataStore.persistAcrossReboot
             if (!data.closeReceiverRegistered) {
@@ -331,7 +334,7 @@ object BaseService {
                     addAction(Action.RELOAD)
                     addAction(Intent.ACTION_SHUTDOWN)
                     addAction(Action.CLOSE)
-                })
+                }, "$packageName.SERVICE", null)
                 data.closeReceiverRegistered = true
             }
 
@@ -342,26 +345,30 @@ object BaseService {
                 try {
                     Executable.killAll()    // clean up old processes
                     preInit()
-                    val hosts = HostsFile(DataStore.publicStore.getString(Key.hosts) ?: "")
-                    proxy.init(this@Interface, hosts)
-                    data.udpFallback?.init(this@Interface, hosts)
+                    if (profile.route == Acl.CUSTOM_RULES) try {
+                        withContext(Dispatchers.IO) {
+                            Acl.customRules.flatten(10, this@Interface::openConnection).also {
+                                Acl.save(Acl.CUSTOM_RULES, it)
+                            }
+                        }
+                    } catch (e: IOException) {
+                        throw ExpectedExceptionWrapper(e)
+                    }
 
                     data.processes = GuardedProcessPool {
-                        printLog(it)
+                        Timber.w(it)
                         stopRunner(false, it.readableMessage)
                     }
-                    startProcesses(hosts)
+                    startProcesses()
 
-                    proxy.scheduleUpdate()
+                    data.proxy!!.scheduleUpdate()
                     data.udpFallback?.scheduleUpdate()
 
                     data.changeState(State.Connected)
                 } catch (_: CancellationException) {
                     // if the job was cancelled, it is canceller's responsibility to call stopRunner
-                } catch (_: UnknownHostException) {
-                    stopRunner(false, getString(R.string.invalid_server))
                 } catch (exc: Throwable) {
-                    if (exc is ExpectedException) exc.printStackTrace() else printLog(exc)
+                    if (exc is ExpectedException) Timber.d(exc) else Timber.w(exc)
                     stopRunner(false, "${getString(R.string.service_failed)}: ${exc.readableMessage}")
                 } finally {
                     data.connectingJob = null

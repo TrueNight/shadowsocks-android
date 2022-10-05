@@ -73,11 +73,25 @@ object PluginContract {
     const val EXTRA_HELP_MESSAGE = "com.github.shadowsocks.plugin.EXTRA_HELP_MESSAGE"
 
     /**
+     * The metadata key to retrieve plugin version. Required for plugin applications.
+     *
+     * Constant Value: "com.github.shadowsocks.plugin.version"
+     */
+    const val METADATA_KEY_VERSION = "com.github.shadowsocks.plugin.version"
+
+    /**
      * The metadata key to retrieve plugin id. Required for plugins.
      *
      * Constant Value: "com.github.shadowsocks.plugin.id"
      */
     const val METADATA_KEY_ID = "com.github.shadowsocks.plugin.id"
+    /**
+     * The metadata key to retrieve plugin id aliases.
+     * Can be a string (representing one alias) or a resource to a string or string array.
+     *
+     * Constant Value: "com.github.shadowsocks.plugin.id.aliases"
+     */
+    const val METADATA_KEY_ID_ALIASES = "com.github.shadowsocks.plugin.id.aliases"
     /**
      * The metadata key to retrieve default configuration. Default value is empty.
      *

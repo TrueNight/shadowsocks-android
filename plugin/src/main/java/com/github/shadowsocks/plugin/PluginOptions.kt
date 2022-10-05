@@ -52,8 +52,9 @@ class PluginOptions : HashMap<String, String?> {
                 if (key != null) {
                     put(key, current.toString())
                     key = null
-                } else if (current.isNotEmpty())
+                } else if (current.isNotEmpty()) {
                     if (parseId) id = current.toString() else put(current.toString(), null)
+                }
                 current.setLength(0)
                 parseId = false
             }
@@ -74,17 +75,15 @@ class PluginOptions : HashMap<String, String?> {
     fun putWithDefault(key: String, value: String?, default: String? = null) =
             if (value == null || value == default) remove(key) else put(key, value)
 
-    private fun append(result: StringBuilder, str: String) = (0 until str.length)
-            .map { str[it] }
-            .forEach {
-                when (it) {
-                    '\\', '=', ';' -> {
-                        result.append('\\') // intentionally no break
-                        result.append(it)
-                    }
-                    else -> result.append(it)
-                }
+    private fun append(result: StringBuilder, str: String) = str.indices.map { str[it] }.forEach {
+        when (it) {
+            '\\', '=', ';' -> {
+                result.append('\\') // intentionally no break
+                result.append(it)
             }
+            else -> result.append(it)
+        }
+    }
 
     fun toString(trimId: Boolean): String {
         val result = StringBuilder()

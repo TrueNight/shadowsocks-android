@@ -30,29 +30,29 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
 import android.system.Os
+import android.system.OsConstants
 import com.github.shadowsocks.Core
 import com.github.shadowsocks.VpnRequestActivity
 import com.github.shadowsocks.acl.Acl
 import com.github.shadowsocks.core.R
 import com.github.shadowsocks.net.ConcurrentLocalSocketListener
 import com.github.shadowsocks.net.DefaultNetworkListener
-import com.github.shadowsocks.net.HostsFile
+import com.github.shadowsocks.net.DnsResolverCompat
 import com.github.shadowsocks.net.Subnet
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.Key
-import com.github.shadowsocks.utils.printLog
+import com.github.shadowsocks.utils.int
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.Closeable
+import timber.log.Timber
 import java.io.File
 import java.io.FileDescriptor
 import java.io.IOException
 import java.net.URL
-import java.util.*
 import android.net.VpnService as BaseVpnService
 
-class VpnService : BaseVpnService(), LocalDnsService.Interface {
+class VpnService : BaseVpnService(), BaseService.Interface {
     companion object {
         private const val VPN_MTU = 1500
         private const val PRIVATE_VLAN4_CLIENT = "172.19.0.1"
@@ -60,33 +60,37 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
         private const val PRIVATE_VLAN6_CLIENT = "fdfe:dcba:9876::1"
         private const val PRIVATE_VLAN6_ROUTER = "fdfe:dcba:9876::2"
 
-        /**
-         * https://android.googlesource.com/platform/prebuilts/runtime/+/94fec32/appcompat/hiddenapi-light-greylist.txt#9466
-         */
-        private val getInt = FileDescriptor::class.java.getDeclaredMethod("getInt$")
-    }
-
-    class CloseableFd(val fd: FileDescriptor) : Closeable {
-        override fun close() = Os.close(fd)
+        private fun <T> FileDescriptor.use(block: (FileDescriptor) -> T) = try {
+            block(this)
+        } finally {
+            try {
+                Os.close(this)
+            } catch (_: ErrnoException) { }
+        }
     }
 
     private inner class ProtectWorker : ConcurrentLocalSocketListener("ShadowsocksVpnThread",
             File(Core.deviceStorage.noBackupFilesDir, "protect_path")) {
         override fun acceptInternal(socket: LocalSocket) {
-            socket.inputStream.read()
-            val fd = socket.ancillaryFileDescriptors!!.single()!!
-            CloseableFd(fd).use {
-                socket.outputStream.write(if (underlyingNetwork.let { network ->
-                            if (network != null && Build.VERSION.SDK_INT >= 23) try {
-                                network.bindSocket(fd)
-                                true
-                            } catch (e: IOException) {
-                                // suppress ENONET (Machine is not on the network)
-                                if ((e.cause as? ErrnoException)?.errno != 64) printLog(e)
-                                false
-                            } else protect(getInt.invoke(fd) as Int)
-                        }) 0 else 1)
+            if (socket.inputStream.read() == -1) return
+            val success = socket.ancillaryFileDescriptors!!.single()!!.use { fd ->
+                underlyingNetwork.let { network ->
+                    if (network != null) try {
+                        network.bindSocket(fd)
+                        return@let true
+                    } catch (e: IOException) {
+                        when ((e.cause as? ErrnoException)?.errno) {
+                            OsConstants.EPERM, OsConstants.EACCES, OsConstants.ENONET -> Timber.d(e)
+                            else -> Timber.w(e)
+                        }
+                        return@let false
+                    }
+                    protect(fd.int)
+                }
             }
+            try {
+                socket.outputStream.write(if (success) 0 else 1)
+            } catch (_: IOException) { }        // ignore connection early close
         }
     }
 
@@ -103,10 +107,11 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
     private var worker: ProtectWorker? = null
     private var active = false
     private var metered = false
+    @Volatile
     private var underlyingNetwork: Network? = null
         set(value) {
             field = value
-            if (active && Build.VERSION.SDK_INT >= 22) setUnderlyingNetworks(underlyingNetworks)
+            if (active) setUnderlyingNetworks(underlyingNetworks)
         }
     private val underlyingNetworks get() =
         // clearing underlyingNetworks makes Android 9 consider the network to be metered
@@ -114,7 +119,7 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
 
     override fun onBind(intent: Intent) = when (intent.action) {
         SERVICE_INTERFACE -> super<BaseVpnService>.onBind(intent)
-        else -> super<LocalDnsService.Interface>.onBind(intent)
+        else -> super<BaseService.Interface>.onBind(intent)
     }
 
     override fun onRevoke() = stopRunner()
@@ -133,26 +138,26 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
         if (DataStore.serviceMode == Key.modeVpn) {
             if (prepare(this) != null) {
                 startActivity(Intent(this, VpnRequestActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } else return super<LocalDnsService.Interface>.onStartCommand(intent, flags, startId)
+            } else return super<BaseService.Interface>.onStartCommand(intent, flags, startId)
         }
         stopRunner()
         return Service.START_NOT_STICKY
     }
 
     override suspend fun preInit() = DefaultNetworkListener.start(this) { underlyingNetwork = it }
-    override suspend fun resolver(host: String) = DnsResolverCompat.resolve(DefaultNetworkListener.get(), host)
+    override suspend fun rawResolver(query: ByteArray) =
+            // no need to listen for network here as this is only used for forwarding local DNS queries.
+            // retries should be attempted by client.
+            DnsResolverCompat.resolveRaw(underlyingNetwork ?: throw IOException("no network"), query)
     override suspend fun openConnection(url: URL) = DefaultNetworkListener.get().openConnection(url)
 
-    override suspend fun startProcesses(hosts: HostsFile) {
+    override suspend fun startProcesses() {
         worker = ProtectWorker().apply { start() }
-        super.startProcesses(hosts)
+        super.startProcesses()
         sendFd(startVpn())
     }
 
-    override fun buildAdditionalArguments(cmd: ArrayList<String>): ArrayList<String> {
-        cmd += "-V"
-        return cmd
-    }
+    override val isVpnService get() = true
 
     private suspend fun startVpn(): FileDescriptor {
         val profile = data.proxy!!.profile
@@ -163,10 +168,7 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
                 .addAddress(PRIVATE_VLAN4_CLIENT, 30)
                 .addDnsServer(PRIVATE_VLAN4_ROUTER)
 
-        if (profile.ipv6) {
-            builder.addAddress(PRIVATE_VLAN6_CLIENT, 126)
-            builder.addRoute("::", 0)
-        }
+        if (profile.ipv6) builder.addAddress(PRIVATE_VLAN6_CLIENT, 126)
 
         if (profile.proxyApps) {
             val me = packageName
@@ -177,29 +179,32 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
                             if (profile.bypass) builder.addDisallowedApplication(it)
                             else builder.addAllowedApplication(it)
                         } catch (ex: PackageManager.NameNotFoundException) {
-                            printLog(ex)
+                            Timber.w(ex)
                         }
                     }
             if (!profile.bypass) builder.addAllowedApplication(me)
         }
 
         when (profile.route) {
-            Acl.ALL, Acl.BYPASS_CHN, Acl.CUSTOM_RULES -> builder.addRoute("0.0.0.0", 0)
+            Acl.ALL, Acl.BYPASS_CHN, Acl.CUSTOM_RULES -> {
+                builder.addRoute("0.0.0.0", 0)
+                if (profile.ipv6) builder.addRoute("::", 0)
+            }
             else -> {
                 resources.getStringArray(R.array.bypass_private_route).forEach {
                     val subnet = Subnet.fromString(it)!!
                     builder.addRoute(subnet.address.hostAddress, subnet.prefixSize)
                 }
                 builder.addRoute(PRIVATE_VLAN4_ROUTER, 32)
+                // https://issuetracker.google.com/issues/149636790
+                if (profile.ipv6) builder.addRoute("2000::", 3)
             }
         }
 
         metered = profile.metered
         active = true   // possible race condition here?
-        if (Build.VERSION.SDK_INT >= 22) {
-            builder.setUnderlyingNetworks(underlyingNetworks)
-            if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
-        }
+        builder.setUnderlyingNetworks(underlyingNetworks)
+        if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
 
         val conn = builder.establish() ?: throw NullConnectionException()
         this.conn = conn

@@ -25,8 +25,6 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
@@ -35,13 +33,13 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.util.SparseBooleanArray
 import android.view.*
-import android.widget.Filter
-import android.widget.Filterable
-import android.widget.SearchView
+import android.widget.*
 import androidx.annotation.UiThread
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.getSystemService
+import androidx.appcompat.widget.Toolbar
 import androidx.core.util.set
+import androidx.core.view.ViewCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -49,14 +47,16 @@ import com.github.shadowsocks.Core.app
 import com.github.shadowsocks.database.ProfileManager
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.DirectBoot
-import com.github.shadowsocks.utils.Key
-import com.github.shadowsocks.utils.SingleInstanceActivity
+import com.github.shadowsocks.utils.listenForPackageChanges
 import com.github.shadowsocks.widget.ListHolderListener
 import com.github.shadowsocks.widget.ListListener
 import com.google.android.material.snackbar.Snackbar
-import kotlinx.android.synthetic.main.layout_apps.*
-import kotlinx.android.synthetic.main.layout_apps_item.view.*
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import me.zhanghai.android.fastscroll.FastScrollerBuilder
+import me.zhanghai.android.fastscroll.PopupTextProvider
 import kotlin.coroutines.coroutineContext
 
 class AppManager : AppCompatActivity() {
@@ -68,7 +68,7 @@ class AppManager : AppCompatActivity() {
         private var receiver: BroadcastReceiver? = null
         private var cachedApps: Map<String, PackageInfo>? = null
         private fun getCachedApps(pm: PackageManager) = synchronized(AppManager) {
-            if (receiver == null) receiver = Core.listenForPackageChanges {
+            if (receiver == null) receiver = app.listenForPackageChanges {
                 synchronized(AppManager) {
                     receiver = null
                     cachedApps = null
@@ -76,7 +76,8 @@ class AppManager : AppCompatActivity() {
                 instance?.loadApps()
             }
             // Labels and icons can change on configuration (locale, etc.) changes, therefore they are not cached.
-            val cachedApps = cachedApps ?: pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
+            val cachedApps = cachedApps ?: pm.getInstalledPackages(
+                    PackageManager.GET_PERMISSIONS or PackageManager.MATCH_UNINSTALLED_PACKAGES)
                     .filter {
                         when (it.packageName) {
                             app.packageName -> false
@@ -106,14 +107,14 @@ class AppManager : AppCompatActivity() {
 
         fun bind(app: ProxiedApp) {
             item = app
-            itemView.itemicon.setImageDrawable(app.icon)
-            itemView.title.text = app.name
-            itemView.desc.text = "${app.packageName} (${app.uid})"
-            itemView.itemcheck.isChecked = isProxiedApp(app)
+            itemView.findViewById<ImageView>(R.id.itemicon).setImageDrawable(app.icon)
+            itemView.findViewById<TextView>(R.id.title).text = app.name
+            itemView.findViewById<TextView>(R.id.desc).text = "${app.packageName} (${app.uid})"
+            itemView.findViewById<Switch>(R.id.itemcheck).isChecked = isProxiedApp(app)
         }
 
         fun handlePayload(payloads: List<String>) {
-            if (payloads.contains(SWITCH)) itemView.itemcheck.isChecked = isProxiedApp(item)
+            if (payloads.contains(SWITCH)) itemView.findViewById<Switch>(R.id.itemcheck).isChecked = isProxiedApp(item)
         }
 
         override fun onClick(v: View?) {
@@ -125,7 +126,7 @@ class AppManager : AppCompatActivity() {
         }
     }
 
-    private inner class AppsAdapter : RecyclerView.Adapter<AppViewHolder>(), Filterable {
+    private inner class AppsAdapter : RecyclerView.Adapter<AppViewHolder>(), Filterable, PopupTextProvider {
         private var filteredApps = apps
 
         suspend fun reload() {
@@ -167,10 +168,16 @@ class AppManager : AppCompatActivity() {
             }
         }
         override fun getFilter(): Filter = filterImpl
+
+        override fun getPopupText(position: Int) = filteredApps[position].name.firstOrNull()?.toString() ?: ""
     }
 
+    private val loading by lazy { findViewById<View>(R.id.loading) }
+    private lateinit var toolbar: Toolbar
+    private lateinit var bypassGroup: RadioGroup
+    private lateinit var list: RecyclerView
+    private lateinit var search: SearchView
     private val proxiedUids = SparseBooleanArray()
-    private val clipboard by lazy { getSystemService<ClipboardManager>()!! }
     private var loader: Job? = null
     private var apps = emptyList<ProxiedApp>()
     private val appsAdapter = AppsAdapter()
@@ -201,7 +208,7 @@ class AppManager : AppCompatActivity() {
     @UiThread
     private fun loadApps() {
         loader?.cancel()
-        loader = GlobalScope.launch(Dispatchers.Main.immediate) {
+        loader = lifecycleScope.launchWhenCreated {
             loading.crossFadeFrom(list)
             val adapter = list.adapter as AppsAdapter
             withContext(Dispatchers.IO) { adapter.reload() }
@@ -212,9 +219,9 @@ class AppManager : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        SingleInstanceActivity.register(this) ?: return
         setContentView(R.layout.layout_apps)
         ListHolderListener.setup(this)
+        toolbar = findViewById(R.id.toolbar)
         setSupportActionBar(toolbar)
         supportActionBar!!.setDisplayHomeAsUpEnabled(true)
 
@@ -223,6 +230,7 @@ class AppManager : AppCompatActivity() {
             DataStore.dirty = true
         }
 
+        bypassGroup = findViewById(R.id.bypassGroup)
         bypassGroup.check(if (DataStore.bypass) R.id.btn_bypass else R.id.btn_on)
         bypassGroup.setOnCheckedChangeListener { _, checkedId ->
             DataStore.dirty = true
@@ -237,11 +245,14 @@ class AppManager : AppCompatActivity() {
         }
 
         initProxiedUids()
-        list.setOnApplyWindowInsetsListener(ListListener)
+        list = findViewById(R.id.list)
+        ViewCompat.setOnApplyWindowInsetsListener(list, ListListener)
         list.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
         list.itemAnimator = DefaultItemAnimator()
         list.adapter = appsAdapter
+        FastScrollerBuilder(list).useMd2Style().build()
 
+        search = findViewById(R.id.search)
         search.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?) = false
             override fun onQueryTextChange(newText: String?) = true.also { appsAdapter.filter.filter(newText) }
@@ -263,6 +274,7 @@ class AppManager : AppCompatActivity() {
                     val proxiedAppString = DataStore.individual
                     profiles.forEach {
                         it.individual = proxiedAppString
+                        it.bypass = DataStore.bypass
                         ProfileManager.updateProfile(it)
                     }
                     if (DataStore.directBootAware) DirectBoot.update()
@@ -271,18 +283,20 @@ class AppManager : AppCompatActivity() {
                 return true
             }
             R.id.action_export_clipboard -> {
-                clipboard.setPrimaryClip(ClipData.newPlainText(Key.individual,
-                        "${DataStore.bypass}\n${DataStore.individual}"))
-                Snackbar.make(list, R.string.action_export_msg, Snackbar.LENGTH_LONG).show()
+                val success = Core.trySetPrimaryClip("${DataStore.bypass}\n${DataStore.individual}")
+                Snackbar.make(list,
+                        if (success) R.string.action_export_msg else R.string.action_export_err,
+                        Snackbar.LENGTH_LONG).show()
                 return true
             }
             R.id.action_import_clipboard -> {
-                val proxiedAppString = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+                val proxiedAppString = Core.clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                 if (!proxiedAppString.isNullOrEmpty()) {
                     val i = proxiedAppString.indexOf('\n')
                     try {
-                        val (enabled, apps) = if (i < 0) Pair(proxiedAppString, "") else
-                            Pair(proxiedAppString.substring(0, i), proxiedAppString.substring(i + 1))
+                        val (enabled, apps) = if (i < 0) {
+                            proxiedAppString to ""
+                        } else proxiedAppString.substring(0, i) to proxiedAppString.substring(i + 1)
                         bypassGroup.check(if (enabled.toBoolean()) R.id.btn_bypass else R.id.btn_on)
                         DataStore.individual = apps
                         DataStore.dirty = true
@@ -301,9 +315,9 @@ class AppManager : AppCompatActivity() {
     override fun supportNavigateUpTo(upIntent: Intent) =
             super.supportNavigateUpTo(upIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
 
-    override fun onKeyUp(keyCode: Int, event: KeyEvent?) = if (keyCode == KeyEvent.KEYCODE_MENU)
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?) = if (keyCode == KeyEvent.KEYCODE_MENU) {
         if (toolbar.isOverflowMenuShowing) toolbar.hideOverflowMenu() else toolbar.showOverflowMenu()
-    else super.onKeyUp(keyCode, event)
+    } else super.onKeyUp(keyCode, event)
 
     override fun onDestroy() {
         instance = null

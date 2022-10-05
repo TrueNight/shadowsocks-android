@@ -27,6 +27,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.CompoundButton
 import android.widget.TextView
+import androidx.fragment.app.setFragmentResult
 import androidx.leanback.preference.LeanbackListPreferenceDialogFragmentCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.github.shadowsocks.Core
@@ -43,16 +44,16 @@ class ProfilesDialogFragment : LeanbackListPreferenceDialogFragmentCompat() {
         }
 
         override fun onClick(v: View) {
-            val index = adapterPosition
+            val index = bindingAdapterPosition
             if (index == RecyclerView.NO_POSITION) return
             Core.switchProfile(adapter.profiles[index].id)
-            (targetFragment as MainPreferenceFragment).startService()
-            fragmentManager?.popBackStack()
+            setFragmentResult(ProfilesDialogFragment::class.java.name, Bundle.EMPTY)
+            parentFragmentManager.popBackStack()
             adapter.notifyDataSetChanged()
         }
     }
     private inner class ProfilesAdapter : RecyclerView.Adapter<ProfileViewHolder>() {
-        val profiles = ProfileManager.getAllProfiles()!!
+        val profiles = ProfileManager.getActiveProfiles()!!
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ProfileViewHolder(
                 LayoutInflater.from(parent.context).inflate(R.layout.leanback_list_preference_item_single_2,
@@ -77,8 +78,8 @@ class ProfilesDialogFragment : LeanbackListPreferenceDialogFragmentCompat() {
     private val adapter = ProfilesAdapter()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        return super.onCreateView(inflater, container, savedInstanceState)!!.also {
-            val list = it.findViewById<RecyclerView>(android.R.id.list)
+        return super.onCreateView(inflater, container, savedInstanceState)!!.apply {
+            val list = findViewById<RecyclerView>(android.R.id.list)
             list.adapter = adapter
             list.layoutManager!!.scrollToPosition(adapter.profiles.indexOfFirst { it.id == DataStore.profileId })
         }

@@ -1,6 +1,5 @@
 /*******************************************************************************
  *                                                                             *
- *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -23,6 +22,7 @@ package com.github.shadowsocks
 
 import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.DialogInterface
 import android.content.Intent
 import android.os.Build
@@ -30,25 +30,33 @@ import android.os.Bundle
 import android.os.Parcelable
 import android.view.MenuItem
 import android.view.View
+import androidx.activity.result.component1
+import androidx.activity.result.component2
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.ViewCompat
+import androidx.fragment.app.setFragmentResultListener
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.whenCreated
 import androidx.preference.*
-import com.github.shadowsocks.Core.app
 import com.github.shadowsocks.database.Profile
 import com.github.shadowsocks.database.ProfileManager
 import com.github.shadowsocks.plugin.*
+import com.github.shadowsocks.plugin.fragment.AlertDialogFragment
+import com.github.shadowsocks.plugin.fragment.Empty
+import com.github.shadowsocks.plugin.fragment.showAllowingStateLoss
 import com.github.shadowsocks.preference.*
 import com.github.shadowsocks.utils.*
 import com.github.shadowsocks.widget.ListListener
 import com.google.android.material.snackbar.Snackbar
-import kotlinx.android.parcel.Parcelize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.parcelize.Parcelize
 
 class ProfileConfigFragment : PreferenceFragmentCompat(),
         Preference.OnPreferenceChangeListener, OnPreferenceDataStoreChangeListener {
     companion object PasswordSummaryProvider : Preference.SummaryProvider<EditTextPreference> {
         override fun provideSummary(preference: EditTextPreference?) = "\u2022".repeat(preference?.text?.length ?: 0)
-
-        private const val REQUEST_CODE_PLUGIN_CONFIGURE = 1
-        const val REQUEST_UNSAVED_CHANGES = 2
     }
 
     @Parcelize
@@ -66,7 +74,7 @@ class ProfileConfigFragment : PreferenceFragmentCompat(),
 
     private var profileId = -1L
     private lateinit var isProxyApps: SwitchPreference
-    private lateinit var plugin: IconListPreference
+    private lateinit var plugin: PluginPreference
     private lateinit var pluginConfigure: EditTextPreference
     private lateinit var pluginConfiguration: PluginConfiguration
     private lateinit var receiver: BroadcastReceiver
@@ -76,11 +84,14 @@ class ProfileConfigFragment : PreferenceFragmentCompat(),
         preferenceManager.preferenceDataStore = DataStore.privateStore
         val activity = requireActivity()
         profileId = activity.intent.getLongExtra(Action.EXTRA_PROFILE_ID, -1L)
+        if (profileId != -1L && profileId != DataStore.editingId) {
+            activity.finish()
+            return
+        }
         addPreferencesFromResource(R.xml.pref_profile)
         findPreference<EditTextPreference>(Key.remotePort)!!.setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
         findPreference<EditTextPreference>(Key.password)!!.summaryProvider = PasswordSummaryProvider
         val serviceMode = DataStore.serviceMode
-        findPreference<Preference>(Key.remoteDns)!!.isEnabled = serviceMode != Key.modeProxy
         findPreference<Preference>(Key.ipv6)!!.isEnabled = serviceMode == Key.modeVpn
         isProxyApps = findPreference(Key.proxyApps)!!
         isProxyApps.isEnabled = serviceMode == Key.modeVpn
@@ -92,66 +103,87 @@ class ProfileConfigFragment : PreferenceFragmentCompat(),
         findPreference<Preference>(Key.metered)!!.apply {
             if (Build.VERSION.SDK_INT >= 28) isEnabled = serviceMode == Key.modeVpn else remove()
         }
-        findPreference<Preference>(Key.udpdns)!!.isEnabled = serviceMode != Key.modeProxy
         plugin = findPreference(Key.plugin)!!
         pluginConfigure = findPreference(Key.pluginConfigure)!!
-        plugin.unknownValueSummary = getString(R.string.plugin_unknown)
-        plugin.setOnPreferenceChangeListener { _, newValue ->
-            pluginConfiguration = PluginConfiguration(pluginConfiguration.pluginsOptions, newValue as String)
-            DataStore.plugin = pluginConfiguration.toString()
-            DataStore.dirty = true
-            pluginConfigure.isEnabled = newValue.isNotEmpty()
-            pluginConfigure.text = pluginConfiguration.selectedOptions.toString()
-            if (PluginManager.fetchPlugins()[newValue]?.trusted == false) {
-                Snackbar.make(view!!, R.string.plugin_untrusted, Snackbar.LENGTH_LONG).show()
-            }
-            true
-        }
         pluginConfigure.setOnBindEditTextListener(EditTextPreferenceModifiers.Monospace)
         pluginConfigure.onPreferenceChangeListener = this
+        pluginConfiguration = PluginConfiguration(DataStore.plugin)
         initPlugins()
-        receiver = Core.listenForPackageChanges(false) { initPlugins() }
         udpFallback = findPreference(Key.udpFallback)!!
         DataStore.privateStore.registerChangeListener(this)
+
+        val profile = ProfileManager.getProfile(profileId) ?: Profile()
+        if (profile.subscription == Profile.SubscriptionStatus.Active) {
+            findPreference<Preference>(Key.name)!!.isEnabled = false
+            findPreference<Preference>(Key.host)!!.isEnabled = false
+            findPreference<Preference>(Key.password)!!.isEnabled = false
+            findPreference<Preference>(Key.method)!!.isEnabled = false
+            findPreference<Preference>(Key.remotePort)!!.isEnabled = false
+            plugin.isEnabled = false
+            pluginConfigure.isEnabled = false
+            udpFallback.isEnabled = false
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        listView.setOnApplyWindowInsetsListener(ListListener)
+        ViewCompat.setOnApplyWindowInsetsListener(listView, ListListener)
+        setFragmentResultListener(PluginPreferenceDialogFragment::class.java.name) { _, bundle ->
+            val selected = plugin.plugins.lookup.getValue(
+                bundle.getString(PluginPreferenceDialogFragment.KEY_SELECTED_ID)!!)
+            val override = pluginConfiguration.pluginsOptions.keys.firstOrNull {
+                plugin.plugins.lookup[it] == selected
+            }
+            pluginConfiguration = PluginConfiguration(pluginConfiguration.pluginsOptions, override ?: selected.id)
+            DataStore.plugin = pluginConfiguration.toString()
+            DataStore.dirty = true
+            plugin.value = pluginConfiguration.selected
+            pluginConfigure.isEnabled = selected !is NoPlugin
+            pluginConfigure.text = pluginConfiguration.getOptions().toString()
+            if (!selected.trusted) {
+                Snackbar.make(requireView(), R.string.plugin_untrusted, Snackbar.LENGTH_LONG).show()
+            }
+        }
+        AlertDialogFragment.setResultListener<ProfileConfigActivity.UnsavedChangesDialogFragment, Empty>(this) {
+                which, _ ->
+            when (which) {
+                DialogInterface.BUTTON_POSITIVE -> saveAndExit()
+                DialogInterface.BUTTON_NEGATIVE -> requireActivity().finish()
+            }
+        }
     }
 
     private fun initPlugins() {
-        val plugins = PluginManager.fetchPlugins()
-        plugin.entries = plugins.map { it.value.label }.toTypedArray()
-        plugin.entryValues = plugins.map { it.value.id }.toTypedArray()
-        plugin.entryIcons = plugins.map { it.value.icon }.toTypedArray()
-        plugin.entryPackageNames = plugins.map { it.value.packageName }.toTypedArray()
-        pluginConfiguration = PluginConfiguration(DataStore.plugin)
         plugin.value = pluginConfiguration.selected
         plugin.init()
-        pluginConfigure.isEnabled = pluginConfiguration.selected.isNotEmpty()
-        pluginConfigure.text = pluginConfiguration.selectedOptions.toString()
+        pluginConfigure.isEnabled = plugin.selectedEntry?.let { it is NoPlugin } == false
+        pluginConfigure.text = pluginConfiguration.getOptions().toString()
     }
 
     private fun showPluginEditor() {
         PluginConfigurationDialogFragment().apply {
             setArg(Key.pluginConfigure, pluginConfiguration.selected)
             setTargetFragment(this@ProfileConfigFragment, 0)
-        }.show(fragmentManager ?: return, Key.pluginConfigure)
+        }.showAllowingStateLoss(parentFragmentManager, Key.pluginConfigure)
     }
 
     private fun saveAndExit() {
         val profile = ProfileManager.getProfile(profileId) ?: Profile()
+        profile.id = profileId
         profile.deserialize()
-        if (profileId == -1L) {
-            ProfileManager.createProfile(profile)
-        } else {
-            profile.id = profileId
-            ProfileManager.updateProfile(profile)
-            ProfilesFragment.instance?.profilesAdapter?.deepRefreshId(profileId)
-        }
+        ProfileManager.updateProfile(profile)
+        ProfilesFragment.instance?.profilesAdapter?.deepRefreshId(profileId)
         if (profileId in Core.activeProfileIds && DataStore.directBootAware) DirectBoot.update()
         requireActivity().finish()
+    }
+
+    override fun onAttach(context: Context) {
+        super.onAttach(context)
+        receiver = context.listenForPackageChanges(false) {
+            lifecycleScope.launch(Dispatchers.Main) {   // wait until changes were flushed
+                whenCreated { initPlugins() }
+            }
+        }
     }
 
     override fun onResume() {
@@ -170,7 +202,7 @@ class ProfileConfigFragment : PreferenceFragmentCompat(),
         DataStore.dirty = true
         true
     } catch (exc: RuntimeException) {
-        Snackbar.make(view!!, exc.readableMessage, Snackbar.LENGTH_LONG).show()
+        Snackbar.make(requireView(), exc.readableMessage, Snackbar.LENGTH_LONG).show()
         false
     }
 
@@ -180,43 +212,39 @@ class ProfileConfigFragment : PreferenceFragmentCompat(),
 
     override fun onDisplayPreferenceDialog(preference: Preference) {
         when (preference.key) {
-            Key.plugin -> BottomSheetPreferenceDialogFragment().apply {
+            Key.plugin -> PluginPreferenceDialogFragment().apply {
                 setArg(Key.plugin)
                 setTargetFragment(this@ProfileConfigFragment, 0)
-            }.show(fragmentManager ?: return, Key.plugin)
+            }.showAllowingStateLoss(parentFragmentManager, Key.plugin)
             Key.pluginConfigure -> {
-                val intent = PluginManager.buildIntent(pluginConfiguration.selected, PluginContract.ACTION_CONFIGURE)
+                val intent = PluginManager.buildIntent(plugin.selectedEntry!!.id, PluginContract.ACTION_CONFIGURE)
                 if (intent.resolveActivity(requireContext().packageManager) == null) showPluginEditor() else {
-                    startActivityForResult(intent
-                            .putExtra(PluginContract.EXTRA_OPTIONS, pluginConfiguration.selectedOptions.toString()),
-                            REQUEST_CODE_PLUGIN_CONFIGURE)
+                    configurePlugin.launch(intent
+                            .putExtra(PluginContract.EXTRA_OPTIONS, pluginConfiguration.getOptions().toString()))
                 }
             }
             else -> super.onDisplayPreferenceDialog(preference)
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        when (requestCode) {
-            REQUEST_CODE_PLUGIN_CONFIGURE -> when (resultCode) {
-                Activity.RESULT_OK -> {
-                    val options = data?.getStringExtra(PluginContract.EXTRA_OPTIONS)
-                    pluginConfigure.text = options
-                    onPreferenceChange(null, options)
-                }
-                PluginContract.RESULT_FALLBACK -> showPluginEditor()
+    private val configurePlugin = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        (resultCode, data) ->
+        when (resultCode) {
+            Activity.RESULT_OK -> {
+                val options = data?.getStringExtra(PluginContract.EXTRA_OPTIONS)
+                pluginConfigure.text = options
+                onPreferenceChange(null, options)
             }
-            REQUEST_UNSAVED_CHANGES -> when (resultCode) {
-                DialogInterface.BUTTON_POSITIVE -> saveAndExit()
-                DialogInterface.BUTTON_NEGATIVE -> requireActivity().finish()
-            }
-            else -> super.onActivityResult(requestCode, resultCode, data)
+            PluginContract.RESULT_FALLBACK -> showPluginEditor()
         }
     }
 
     override fun onOptionsItemSelected(item: MenuItem) = when (item.itemId) {
         R.id.action_delete -> {
-            DeleteConfirmationDialogFragment().withArg(ProfileIdArg(profileId)).show(this)
+            DeleteConfirmationDialogFragment().apply {
+                arg(ProfileIdArg(profileId))
+                key()
+            }.show(parentFragmentManager, null)
             true
         }
         R.id.action_apply -> {
@@ -226,9 +254,13 @@ class ProfileConfigFragment : PreferenceFragmentCompat(),
         else -> false
     }
 
+    override fun onDetach() {
+        requireContext().unregisterReceiver(receiver)
+        super.onDetach()
+    }
+
     override fun onDestroy() {
         DataStore.privateStore.unregisterChangeListener(this)
-        app.unregisterReceiver(receiver)
         super.onDestroy()
     }
 }

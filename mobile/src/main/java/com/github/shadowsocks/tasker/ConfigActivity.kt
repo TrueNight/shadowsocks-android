@@ -30,6 +30,7 @@ import android.widget.CheckedTextView
 import android.widget.Switch
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -71,7 +72,7 @@ class ConfigActivity : AppCompatActivity() {
     }
 
     inner class ProfilesAdapter : RecyclerView.Adapter<ProfileViewHolder>() {
-        internal val profiles = ProfileManager.getAllProfiles()?.toMutableList() ?: mutableListOf()
+        internal val profiles = ProfileManager.getActiveProfiles()?.toMutableList() ?: mutableListOf()
 
         override fun onBindViewHolder(holder: ProfileViewHolder, position: Int) =
                 if (position == 0) holder.bindDefault() else holder.bind(profiles[position - 1])
@@ -104,7 +105,7 @@ class ConfigActivity : AppCompatActivity() {
         switch = findViewById(R.id.serviceSwitch)
         switch.isChecked = taskerOption.switchOn
         findViewById<RecyclerView>(R.id.list).apply {
-            setOnApplyWindowInsetsListener(ListListener)
+            ViewCompat.setOnApplyWindowInsetsListener(this, ListListener)
             itemAnimator = DefaultItemAnimator()
             adapter = profilesAdapter
             layoutManager = LinearLayoutManager(this@ConfigActivity, RecyclerView.VERTICAL, false).apply {

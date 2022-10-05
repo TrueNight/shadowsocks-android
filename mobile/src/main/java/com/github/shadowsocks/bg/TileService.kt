@@ -47,7 +47,7 @@ class TileService : BaseTileService(), ShadowsocksConnection.Callback {
         updateTile(BaseService.State.values()[service.state]) { service.profileName }
         if (tapPending) {
             tapPending = false
-            onClick()
+            toggle()
         }
     }
 
@@ -68,7 +68,7 @@ class TileService : BaseTileService(), ShadowsocksConnection.Callback {
         qsTile?.apply {
             label = null
             when (serviceState) {
-                BaseService.State.Idle -> throw IllegalStateException("serviceState")
+                BaseService.State.Idle -> error("serviceState")
                 BaseService.State.Connecting -> {
                     icon = iconBusy
                     state = Tile.STATE_ACTIVE

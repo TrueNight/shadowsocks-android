@@ -29,9 +29,10 @@ import androidx.appcompat.app.AppCompatActivity
 import com.github.shadowsocks.core.R
 import com.github.shadowsocks.database.Profile
 import com.github.shadowsocks.database.ProfileManager
-import com.github.shadowsocks.plugin.AlertDialogFragment
-import com.github.shadowsocks.plugin.Empty
-import kotlinx.android.parcel.Parcelize
+import com.github.shadowsocks.plugin.fragment.AlertDialogFragment
+import com.github.shadowsocks.plugin.fragment.Empty
+import com.github.shadowsocks.plugin.fragment.showAllowingStateLoss
+import kotlinx.parcelize.Parcelize
 
 class UrlImportActivity : AppCompatActivity() {
     @Parcelize
@@ -61,12 +62,15 @@ class UrlImportActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.profile_invalid_input, Toast.LENGTH_SHORT).show()
                 finish()
             }
-            else -> dialog.show(supportFragmentManager, null)
+            else -> dialog.showAllowingStateLoss(supportFragmentManager)
         }
     }
 
     private fun handleShareIntent() = intent.data?.toString()?.let { sharedStr ->
-        val profiles = Profile.findAllUrls(sharedStr, Core.currentProfile?.first).toList()
-        if (profiles.isEmpty()) null else ImportProfilesDialogFragment().withArg(ProfilesArg(profiles))
+        val profiles = Profile.findAllUrls(sharedStr, Core.currentProfile?.main).toList()
+        if (profiles.isEmpty()) null else ImportProfilesDialogFragment().apply {
+            arg(ProfilesArg(profiles))
+            key()
+        }
     }
 }

@@ -1,6 +1,5 @@
 /*******************************************************************************
  *                                                                             *
- *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2017 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2017 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -21,12 +20,8 @@
 
 package com.github.shadowsocks.acl
 
-import android.content.ClipData
-import android.content.ClipboardManager
+import android.annotation.SuppressLint
 import android.content.DialogInterface
-import android.content.Intent
-import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
 import android.text.Editable
@@ -39,7 +34,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.Toolbar
 import androidx.core.content.ContextCompat
-import androidx.core.content.getSystemService
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -50,7 +45,7 @@ import com.github.shadowsocks.R
 import com.github.shadowsocks.ToolbarFragment
 import com.github.shadowsocks.bg.BaseService
 import com.github.shadowsocks.net.Subnet
-import com.github.shadowsocks.plugin.AlertDialogFragment
+import com.github.shadowsocks.plugin.fragment.AlertDialogFragment
 import com.github.shadowsocks.utils.asIterable
 import com.github.shadowsocks.utils.readableMessage
 import com.github.shadowsocks.utils.resolveResourceId
@@ -58,7 +53,9 @@ import com.github.shadowsocks.widget.ListHolderListener
 import com.github.shadowsocks.widget.MainListListener
 import com.github.shadowsocks.widget.UndoSnackbarManager
 import com.google.android.material.textfield.TextInputLayout
-import kotlinx.android.parcel.Parcelize
+import kotlinx.parcelize.Parcelize
+import me.zhanghai.android.fastscroll.FastScrollerBuilder
+import timber.log.Timber
 import java.net.IDN
 import java.net.MalformedURLException
 import java.net.URL
@@ -67,15 +64,13 @@ import java.util.regex.PatternSyntaxException
 
 class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, ActionMode.Callback {
     companion object {
-        private const val REQUEST_CODE_ADD = 1
-        private const val REQUEST_CODE_EDIT = 2
-
         private const val SELECTED_SUBNETS = "com.github.shadowsocks.acl.CustomRulesFragment.SELECTED_SUBNETS"
         private const val SELECTED_HOSTNAMES = "com.github.shadowsocks.acl.CustomRulesFragment.SELECTED_HOSTNAMES"
         private const val SELECTED_URLS = "com.github.shadowsocks.acl.CustomRulesFragment.SELECTED_URLS"
 
-        // unescaped: (?<=^(\(\^\|\\\.\)|\^\(\.\*\\\.\)\?)).*(?=\$$)
-        private val domainPattern = "(?<=^(\\(\\^\\|\\\\\\.\\)|\\^\\(\\.\\*\\\\\\.\\)\\?)).*(?=\\\$\$)".toRegex()
+        // unescaped lol: (?<=^(?:\(\^\|\\\.\)|\^\(\.\*\\\.\)\?|\(\?:\^\|\\\.\))).*(?=\$$)
+        private val domainPattern =
+                "(?<=^(?:\\(\\^\\|\\\\\\.\\)|\\^\\(\\.\\*\\\\\\.\\)\\?|\\(\\?:\\^\\|\\\\\\.\\))).*(?=\\\$\$)".toRegex()
 
         @Suppress("FunctionName")
         private fun AclItem(item: Any) = when (item) {
@@ -96,8 +91,10 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         fun toAny() = if (isUrl) URL(item) else Subnet.fromString(item) ?: item
     }
     @Parcelize
-    data class AclEditResult(val edited: AclItem, val replacing: AclItem) : Parcelable
-    class AclRuleDialogFragment : AlertDialogFragment<AclItem, AclEditResult>(),
+    data class AclArg(val item: AclItem? = null) : Parcelable
+    @Parcelize
+    data class AclEditResult(val edited: AclItem?, val replacing: AclItem?) : Parcelable
+    class AclRuleDialogFragment : AlertDialogFragment<AclArg, AclEditResult>(),
             TextWatcher, AdapterView.OnItemSelectedListener {
         private lateinit var templateSelector: Spinner
         private lateinit var editText: EditText
@@ -106,13 +103,16 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
 
         override fun AlertDialog.Builder.prepare(listener: DialogInterface.OnClickListener) {
             val activity = requireActivity()
+            @SuppressLint("InflateParams")
             val view = activity.layoutInflater.inflate(R.layout.dialog_acl_rule, null)
             templateSelector = view.findViewById(R.id.template_selector)
             editText = view.findViewById(R.id.content)
             inputLayout = view.findViewById(R.id.content_layout)
             templateSelector.setSelection(Template.Generic.ordinal)
-            editText.setText(arg.item)
+            val arg = arg.item
+            editText.setText(arg?.item)
             when {
+                arg == null -> { }
                 arg.isUrl -> templateSelector.setSelection(Template.Url.ordinal)
                 Subnet.fromString(arg.item) == null -> {
                     val match = domainPattern.find(arg.item)
@@ -128,7 +128,7 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
             setTitle(R.string.edit_rule)
             setPositiveButton(android.R.string.ok, listener)
             setNegativeButton(android.R.string.cancel, null)
-            if (arg.item.isNotEmpty()) setNeutralButton(R.string.delete, listener)
+            if (!arg?.item.isNullOrEmpty()) setNeutralButton(R.string.delete, listener)
             setView(view)
         }
 
@@ -180,12 +180,12 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
                     when (Template.values()[templateSelector.selectedItemPosition]) {
                         Template.Generic -> AclItem(text)
                         Template.Domain -> AclItem(IDN.toASCII(text, IDN.ALLOW_UNASSIGNED or IDN.USE_STD3_ASCII_RULES)
-                                .replace(".", "\\.").let { "(^|\\.)$it\$" })
+                                .replace(".", "\\.").let { "(?:^|\\.)$it\$" })
                         Template.Url -> AclItem(text, true)
                     }
-                }, arg)
+                }, arg.item)
             }
-            DialogInterface.BUTTON_NEUTRAL -> AclEditResult(arg, arg)
+            DialogInterface.BUTTON_NEUTRAL -> AclEditResult(null, arg.item)
             else -> null
         }
 
@@ -223,8 +223,10 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         }
 
         override fun onClick(v: View?) {
-            if (selectedItems.isNotEmpty()) onLongClick(v)
-            else AclRuleDialogFragment().withArg(AclItem(item)).show(this@CustomRulesFragment, REQUEST_CODE_EDIT)
+            if (selectedItems.isNotEmpty()) onLongClick(v) else AclRuleDialogFragment().apply {
+                arg(AclArg(AclItem(item)))
+                key()
+            }.show(parentFragmentManager, null)
         }
         override fun onLongClick(v: View?): Boolean {
             if (!selectedItems.add(item)) selectedItems.remove(item)    // toggle
@@ -360,15 +362,14 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         }
     }
 
-    private val isEnabled get() = (activity as MainActivity).state == BaseService.State.Stopped ||
-            Core.currentProfile?.first?.route != Acl.CUSTOM_RULES
+    private val isEnabled get() = (activity as? MainActivity)?.state == BaseService.State.Stopped ||
+            Core.currentProfile?.main?.route != Acl.CUSTOM_RULES
 
     private val selectedItems = HashSet<Any>()
     private val adapter by lazy { AclRulesAdapter() }
     private lateinit var list: RecyclerView
     private var mode: ActionMode? = null
     private lateinit var undoManager: UndoSnackbarManager<Any>
-    private val clipboard by lazy { requireContext().getSystemService<ClipboardManager>()!! }
 
     private fun onSelectedItemsUpdated() {
         if (selectedItems.isEmpty()) mode?.finish() else if (mode == null) mode = toolbar.startActionMode(this)
@@ -379,10 +380,18 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        view.setOnApplyWindowInsetsListener(ListHolderListener)
+        ViewCompat.setOnApplyWindowInsetsListener(view, ListHolderListener)
+        AlertDialogFragment.setResultListener<AclRuleDialogFragment, AclEditResult>(this) { which, ret ->
+            val (edited, replacing) = ret ?: return@setResultListener
+            replacing?.toAny()?.let { item ->
+                adapter.remove(item)
+                if (which == DialogInterface.BUTTON_NEUTRAL) undoManager.remove(Pair(-1, item))
+            }
+            if (edited != null) adapter.add(edited.toAny())?.also { list.post { list.scrollToPosition(it) } }
+        }
         if (savedInstanceState != null) {
             selectedItems.addAll(savedInstanceState.getStringArray(SELECTED_SUBNETS)
-                    ?.mapNotNull(Subnet.Companion::fromString) ?: listOf())
+                    ?.mapNotNull { Subnet.fromString(it) } ?: listOf())
             selectedItems.addAll(savedInstanceState.getStringArray(SELECTED_HOSTNAMES)
                     ?: arrayOf())
             selectedItems.addAll(savedInstanceState.getStringArray(SELECTED_URLS)?.map { URL(it) }
@@ -394,12 +403,13 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         toolbar.setOnMenuItemClickListener(this)
         val activity = activity as MainActivity
         list = view.findViewById(R.id.list)
-        list.setOnApplyWindowInsetsListener(MainListListener)
+        ViewCompat.setOnApplyWindowInsetsListener(list, MainListListener)
         list.layoutManager = LinearLayoutManager(activity, RecyclerView.VERTICAL, false)
         list.itemAnimator = DefaultItemAnimator()
         list.adapter = adapter
+        FastScrollerBuilder(list).useMd2Style().build()
         undoManager = UndoSnackbarManager(activity, adapter::undo)
-        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.START or ItemTouchHelper.END) {
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.START) {
             override fun getSwipeDirs(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder): Int =
                     if (isEnabled && selectedItems.isEmpty()) super.getSwipeDirs(recyclerView, viewHolder) else 0
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) =
@@ -435,20 +445,25 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
                 is URL -> acl.urls.add(it)
             }
         }
-        clipboard.setPrimaryClip(ClipData.newPlainText(null, acl.toString()))
+        val success = Core.trySetPrimaryClip(acl.toString())
+        (activity as MainActivity).snackbar().setText(
+                if (success) R.string.action_export_msg else R.string.action_export_err).show()
     }
 
     override fun onMenuItemClick(item: MenuItem): Boolean = when (item.itemId) {
         R.id.action_manual_settings -> {
-            AclRuleDialogFragment().withArg(AclItem()).show(this, REQUEST_CODE_ADD)
+            AclRuleDialogFragment().apply {
+                arg(AclArg(AclItem()))
+                key()
+            }.show(parentFragmentManager, null)
             true
         }
         R.id.action_import_clipboard -> {
             try {
-                check(adapter.addToProxy(clipboard.primaryClip!!.getItemAt(0).text.toString()) != null)
+                check(adapter.addToProxy(Core.clipboard.primaryClip!!.getItemAt(0).text.toString()) != null)
             } catch (exc: Exception) {
                 (activity as MainActivity).snackbar().setText(R.string.action_import_err).show()
-                exc.printStackTrace()
+                Timber.d(exc)
             }
             true
         }
@@ -462,25 +477,6 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
         else -> false
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        val editing = when (requestCode) {
-            REQUEST_CODE_ADD -> false
-            REQUEST_CODE_EDIT -> true
-            else -> return super.onActivityResult(requestCode, resultCode, data)
-        }
-        val ret by lazy { AlertDialogFragment.getRet<AclEditResult>(data!!) }
-        when (resultCode) {
-            DialogInterface.BUTTON_POSITIVE -> {
-                if (editing) adapter.remove(ret.replacing.toAny())
-                adapter.add(ret.edited.toAny())?.also { list.post { list.scrollToPosition(it) } }
-            }
-            DialogInterface.BUTTON_NEUTRAL -> ret.replacing.toAny().let { item ->
-                adapter.remove(item)
-                undoManager.remove(Pair(-1, item))
-            }
-        }
-    }
-
     override fun onDetach() {
         undoManager.flush()
         mode?.finish()
@@ -489,18 +485,7 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
 
     override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
         val activity = requireActivity()
-        val window = activity.window
-        // In the end material_grey_100 is used for background, see AppCompatDrawableManager (very complicated)
-        // for dark mode, it's roughly 850? (#303030)
-        window.statusBarColor = ContextCompat.getColor(activity, when {
-            resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES ->
-                android.R.color.black
-            Build.VERSION.SDK_INT >= 23 -> {
-                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                R.color.material_grey_300
-            }
-            else -> R.color.material_grey_600
-        })
+        activity.window.statusBarColor = ContextCompat.getColor(activity, android.R.color.black)
         activity.menuInflater.inflate(R.menu.custom_rules_selection, menu)
         toolbar.touchscreenBlocksFocus = true
         return true
@@ -528,10 +513,8 @@ class CustomRulesFragment : ToolbarFragment(), Toolbar.OnMenuItemClickListener, 
     }
     override fun onDestroyActionMode(mode: ActionMode) {
         val activity = requireActivity()
-        val window = activity.window
-        window.statusBarColor = ContextCompat.getColor(activity,
+        activity.window.statusBarColor = ContextCompat.getColor(activity,
                 activity.theme.resolveResourceId(android.R.attr.statusBarColor))
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
         toolbar.touchscreenBlocksFocus = false
         selectedItems.clear()
         onSelectedItemsUpdated()

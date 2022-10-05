@@ -1,6 +1,5 @@
 /*******************************************************************************
  *                                                                             *
- *  Copyright (C) 2019 by TrueNight <twilightinnight@gmail.com>                *
  *  Copyright (C) 2019 by Max Lv <max.c.lv@gmail.com>                          *
  *  Copyright (C) 2019 by Mygod Studio <contact-shadowsocks-android@mygod.be>  *
  *                                                                             *
@@ -27,7 +26,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
-import android.util.Log
+import android.os.Handler
+import android.os.Looper
 import com.github.shadowsocks.Core
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -94,7 +94,7 @@ object DefaultNetworkListener {
     // NB: this runs in ConnectivityThread, and this behavior cannot be changed until API 26
     private object Callback : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = runBlocking { networkActor.send(NetworkMessage.Put(network)) }
-        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities?) {
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
             // it's a good idea to refresh capabilities
             runBlocking { networkActor.send(NetworkMessage.Update(network)) }
         }
@@ -105,7 +105,12 @@ object DefaultNetworkListener {
     private val request = NetworkRequest.Builder().apply {
         addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+        if (Build.VERSION.SDK_INT == 23) {  // workarounds for OEM bugs
+            removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            removeCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
+        }
     }.build()
+    private val mainHandler = Handler(Looper.getMainLooper())
     /**
      * Unfortunately registerDefaultNetworkCallback is going to return VPN interface since Android P DP1:
      * https://android.googlesource.com/platform/frameworks/base/+/dda156ab0c5d66ad82bdcf76cda07cbc0a9c8a2e
@@ -117,16 +122,25 @@ object DefaultNetworkListener {
      * Source: https://android.googlesource.com/platform/frameworks/base/+/2df4c7d/services/core/java/com/android/server/ConnectivityService.java#887
      */
     private fun register() {
-        if (Build.VERSION.SDK_INT in 24..27) @TargetApi(24) {
-            Core.connectivity.registerDefaultNetworkCallback(Callback)
-        } else try {
-            fallback = false
-            // we want REQUEST here instead of LISTEN
-            Core.connectivity.requestNetwork(request, Callback)
-        } catch (e: SecurityException) {
-            // known bug: https://stackoverflow.com/a/33509180/2245107
-            if (Build.VERSION.SDK_INT != 23) Log.w("DefaultNetworkListener", e)
-            fallback = true
+        when (Build.VERSION.SDK_INT) {
+            in 31..Int.MAX_VALUE -> @TargetApi(31) {
+                Core.connectivity.registerBestMatchingNetworkCallback(request, Callback, mainHandler)
+            }
+            in 28 until 31 -> @TargetApi(28) {  // we want REQUEST here instead of LISTEN
+                Core.connectivity.requestNetwork(request, Callback, mainHandler)
+            }
+            in 26 until 28 -> @TargetApi(26) {
+                Core.connectivity.registerDefaultNetworkCallback(Callback, mainHandler)
+            }
+            in 24 until 26 -> @TargetApi(24) {
+                Core.connectivity.registerDefaultNetworkCallback(Callback)
+            }
+            else -> try {
+                fallback = false
+                Core.connectivity.requestNetwork(request, Callback)
+            } catch (e: RuntimeException) {
+                fallback = true     // known bug on API 23: https://stackoverflow.com/a/33509180/2245107
+            }
         }
     }
     private fun unregister() = Core.connectivity.unregisterNetworkCallback(Callback)

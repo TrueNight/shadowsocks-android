@@ -37,7 +37,11 @@ class TrafficMonitor(statFile: File) {
         private val buffer = ByteArray(16)
         private val stat = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN)
         override fun acceptInternal(socket: LocalSocket) {
-            if (socket.inputStream.read(buffer) != 16) throw IOException("Unexpected traffic stat length")
+            when (val read = socket.inputStream.read(buffer)) {
+                -1 -> return
+                16 -> { }
+                else -> throw IOException("Unexpected traffic stat length $read")
+            }
             val tx = stat.getLong(0)
             val rx = stat.getLong(8)
             if (current.txTotal != tx) {
@@ -55,7 +59,7 @@ class TrafficMonitor(statFile: File) {
     var out = TrafficStats()
     private var timestampLast = 0L
     private var dirty = false
-    private var persisted = false
+    private var persisted: TrafficStats? = null
 
     fun requestUpdate(): Pair<TrafficStats, Boolean> {
         val now = SystemClock.elapsedRealtime()
@@ -85,8 +89,9 @@ class TrafficMonitor(statFile: File) {
     }
 
     fun persistStats(id: Long) {
-        check(!persisted) { "Double persisting?" }
-        persisted = true
+        val current = current
+        check(persisted == null || persisted == current) { "Data loss occurred" }
+        persisted = current
         try {
             // profile may have host, etc. modified and thus a re-fetch is necessary (possible race condition)
             val profile = ProfileManager.getProfile(id) ?: return
@@ -95,7 +100,7 @@ class TrafficMonitor(statFile: File) {
             ProfileManager.updateProfile(profile)
         } catch (e: IOException) {
             if (!DataStore.directBootAware) throw e // we should only reach here because we're in direct boot
-            val profile = DirectBoot.getDeviceProfile()!!.toList().filterNotNull().single { it.id == id }
+            val profile = DirectBoot.getDeviceProfile()!!.toList().single { it.id == id }
             profile.tx += current.txTotal
             profile.rx += current.rxTotal
             profile.dirty = true
