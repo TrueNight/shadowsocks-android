@@ -56,7 +56,7 @@ fun Project.setupCore() {
     setupCommon()
     android.apply {
         defaultConfig {
-            versionCode = 5020650
+            versionCode = 5020656
             versionName = "5.2.6"
         }
         compileOptions.isCoreLibraryDesugaringEnabled = true
